@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-export type AIChatMode = "video-only" | "video-and-web";
+export type AIChatMode = "video" | "search";
 
 export interface ChatMessage {
   id: string;
@@ -18,18 +18,67 @@ export interface ChatMessage {
   };
 }
 
+export interface AIChatPanelProps {
+  /** 当前视频字幕，用于上下文；空则仅用历史与问题 */
+  transcript?: { text: string; start: number }[];
+  /** 点击时间戳时跳转到视频对应位置 */
+  onSeekTo?: (time: string) => void;
+}
+
 const WELCOME_MESSAGE: ChatMessage = {
   id: "welcome",
   role: "assistant",
   content: "你好！我已经读完这个视频，有什么想问的？",
 };
 
-const MOCK_VIDEO_SOURCES = ["00:02:15", "00:05:43"];
-const MOCK_WEB_SOURCE = { title: "机器学习简介", url: "https://wikipedia.org" };
+const TIMESTAMP_REGEX = /\[(\d{2}:\d{2}(?::\d{2})?)\]/g;
 
-export function AIChatPanel() {
+function parseContentWithTimestamps(
+  content: string,
+  onSeekTo?: (time: string) => void
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  const re = new RegExp(TIMESTAMP_REGEX.source, "g");
+  while ((match = re.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(
+        <React.Fragment key={`t-${lastIndex}`}>
+          {content.slice(lastIndex, match.index)}
+        </React.Fragment>
+      );
+    }
+    const time = match[1];
+    nodes.push(
+      onSeekTo ? (
+        <button
+          key={`ts-${match.index}`}
+          type="button"
+          onClick={() => onSeekTo(time)}
+          className="timestamp-btn mx-0.5 rounded px-1 font-medium text-primary underline decoration-primary/60 underline-offset-2 hover:decoration-primary"
+        >
+          {match[0]}
+        </button>
+      ) : (
+        <span key={`ts-${match.index}`} className="font-medium text-muted-foreground">
+          {match[0]}
+        </span>
+      )
+    );
+    lastIndex = re.lastIndex;
+  }
+  if (lastIndex < content.length) {
+    nodes.push(
+      <React.Fragment key={`t-${lastIndex}`}>{content.slice(lastIndex)}</React.Fragment>
+    );
+  }
+  return nodes.length > 0 ? nodes : [content];
+}
+
+export function AIChatPanel({ transcript = [], onSeekTo }: AIChatPanelProps) {
   const [open, setOpen] = React.useState(false);
-  const [mode, setMode] = React.useState<AIChatMode>("video-only");
+  const [mode, setMode] = React.useState<AIChatMode>("video");
   const [input, setInput] = React.useState("");
   const [messages, setMessages] = React.useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [typing, setTyping] = React.useState(false);
@@ -37,7 +86,10 @@ export function AIChatPanel() {
 
   const scrollToBottom = React.useCallback(() => {
     requestAnimationFrame(() => {
-      listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+      listRef.current?.scrollTo({
+        top: listRef.current.scrollHeight,
+        behavior: "smooth",
+      });
     });
   }, []);
 
@@ -55,31 +107,56 @@ export function AIChatPanel() {
     setTyping(true);
     scrollToBottom();
 
-    setTimeout(() => {
-      const aiMsg: ChatMessage = {
-        id: `ai-${Date.now()}`,
-        role: "assistant",
-        content: "这是一个关于你问题的模拟回答，实际接入 API 后会替换。",
-        sources: {
-          video: MOCK_VIDEO_SOURCES,
-          web: mode === "video-and-web" ? [MOCK_WEB_SOURCE] : undefined,
-        },
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-      setTyping(false);
-      scrollToBottom();
-    }, 1500);
-  }, [input, mode, scrollToBottom]);
+    const historyMessages = messages.filter((m) => m.id !== WELCOME_MESSAGE.id);
+    const history: { role: "user" | "assistant"; content: string }[] = historyMessages.map(
+      (m) => ({ role: m.role, content: m.content })
+    );
+
+    fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question: text,
+        transcript,
+        history,
+        mode,
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) {
+          return res.json().then((d) => Promise.reject(new Error(d?.error ?? "请求失败")));
+        }
+        return res.json();
+      })
+      .then((data: { answer?: string }) => {
+        const answer = data?.answer ?? "回答生成失败，请重试";
+        const aiMsg: ChatMessage = {
+          id: `ai-${Date.now()}`,
+          role: "assistant",
+          content: answer,
+        };
+        setMessages((prev) => [...prev, aiMsg]);
+        scrollToBottom();
+      })
+      .catch(() => {
+        const aiMsg: ChatMessage = {
+          id: `ai-${Date.now()}`,
+          role: "assistant",
+          content: "回答生成失败，请重试",
+        };
+        setMessages((prev) => [...prev, aiMsg]);
+        scrollToBottom();
+      })
+      .finally(() => {
+        setTyping(false);
+      });
+  }, [input, mode, messages, transcript, scrollToBottom]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
-  };
-
-  const handleTimestampClick = (timestamp: string) => {
-    console.log("跳转到时间戳：" + timestamp);
   };
 
   return (
@@ -102,33 +179,40 @@ export function AIChatPanel() {
         >
           <header className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
             <h3 className="text-sm font-semibold">AI 助手</h3>
-            <div className="flex items-center gap-1">
-              <div className="flex rounded-md border p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setMode("video-only")}
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "text-xs",
+                  mode === "search" ? "text-muted-foreground" : "font-medium text-foreground"
+                )}
+              >
+                仅视频
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={mode === "search"}
+                onClick={() => setMode((m) => (m === "video" ? "search" : "video"))}
+                className={cn(
+                  "relative h-5 w-10 shrink-0 cursor-pointer rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  mode === "search" ? "bg-primary" : "bg-muted"
+                )}
+              >
+                <span
                   className={cn(
-                    "rounded px-2 py-1 text-xs",
-                    mode === "video-only"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground"
+                    "absolute top-0.5 block h-4 w-4 rounded-full bg-background shadow transition-all duration-200",
+                    mode === "search" ? "left-6" : "left-0.5"
                   )}
-                >
-                  仅视频内容
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("video-and-web")}
-                  className={cn(
-                    "rounded px-2 py-1 text-xs",
-                    mode === "video-and-web"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  视频+网络搜索
-                </button>
-              </div>
+                />
+              </button>
+              <span
+                className={cn(
+                  "text-xs",
+                  mode === "search" ? "font-medium text-foreground" : "text-muted-foreground"
+                )}
+              >
+                联网搜索
+              </span>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -140,10 +224,7 @@ export function AIChatPanel() {
             </div>
           </header>
 
-          <div
-            ref={listRef}
-            className="min-h-0 flex-1 overflow-y-auto p-3"
-          >
+          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-3">
             <ul className="flex flex-col gap-3">
               {messages.map((msg) => (
                 <li
@@ -161,43 +242,12 @@ export function AIChatPanel() {
                         : "border bg-card text-foreground"
                     )}
                   >
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
-                    {msg.role === "assistant" && msg.sources && (
-                      <div className="mt-2 space-y-1 border-t pt-2 text-xs text-muted-foreground">
-                        {msg.sources.video && msg.sources.video.length > 0 && (
-                          <div>
-                            📍 视频来源：
-                            {msg.sources.video.map((ts) => (
-                              <button
-                                key={ts}
-                                type="button"
-                                onClick={() => handleTimestampClick(ts)}
-                                className="ml-1 underline hover:text-foreground"
-                              >
-                                [{ts}]
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        {msg.sources.web &&
-                          msg.sources.web.length > 0 &&
-                          mode === "video-and-web" && (
-                            <div>
-                              🔗 网络来源：
-                              {msg.sources.web.map((s, i) => (
-                                <a
-                                  key={i}
-                                  href={s.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="ml-1 underline hover:text-foreground"
-                                >
-                                  {s.title} ({new URL(s.url).hostname})
-                                </a>
-                              ))}
-                            </div>
-                          )}
+                    {msg.role === "assistant" ? (
+                      <div className="whitespace-pre-wrap">
+                        {parseContentWithTimestamps(msg.content, onSeekTo)}
                       </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{msg.content}</div>
                     )}
                   </div>
                 </li>

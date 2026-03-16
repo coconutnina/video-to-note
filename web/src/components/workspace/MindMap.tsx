@@ -29,11 +29,12 @@ import {
   MINDMAP_NODE_IDS,
   MINDMAP_NODES,
 } from "@/components/workspace/mindmap-data";
+import type { FlowEdge, FlowNode } from "@/lib/mindmap";
 import { cn } from "@/lib/utils";
 
 const nodeTypes = { mindmap: MindMapNode };
 
-const initialNodes: Node<{ label: string; timestamp?: string }>[] = MINDMAP_NODES.map(
+const defaultNodes: Node<{ label: string; timestamp?: string }>[] = MINDMAP_NODES.map(
   (n) => ({
     ...n,
     type: "mindmap",
@@ -42,16 +43,52 @@ const initialNodes: Node<{ label: string; timestamp?: string }>[] = MINDMAP_NODE
 
 export interface MindMapProps {
   className?: string;
+  /** 生成中时显示骨架屏 */
+  loading?: boolean;
+  /** API 返回的节点/边，不传则用 mock */
+  initialNodes?: FlowNode[] | null;
+  initialEdges?: FlowEdge[] | null;
 }
 
-export function MindMap({ className }: MindMapProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(MINDMAP_EDGES);
+export function MindMap({
+  className,
+  loading = false,
+  initialNodes,
+  initialEdges,
+}: MindMapProps) {
+  const [nodes, setNodes, onNodesChange] = useNodesState(
+    (initialNodes?.length ? initialNodes : defaultNodes) as Node<{
+      label: string;
+      timestamp?: string;
+    }>[]
+  );
+  const [edges, setEdges, onEdgesChange] = useEdgesState(
+    initialEdges?.length ? initialEdges : MINDMAP_EDGES
+  );
+
+  const nodeIds = React.useMemo(
+    () =>
+      initialNodes?.length
+        ? initialNodes.map((n) => n.id)
+        : MINDMAP_NODE_IDS,
+    [initialNodes]
+  );
+
   const [highlightedNodeId, setHighlightedNodeId] = React.useState<string>(
-    MINDMAP_NODE_IDS[0] ?? "1"
+    nodeIds[0] ?? "1"
   );
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [regenerateTopic, setRegenerateTopic] = React.useState("");
+
+  React.useEffect(() => {
+    if (initialNodes?.length)
+      setNodes(initialNodes as Node<{ label: string; timestamp?: string }>[]);
+    if (initialEdges?.length) setEdges(initialEdges);
+  }, [initialNodes, initialEdges, setNodes, setEdges]);
+
+  React.useEffect(() => {
+    setHighlightedNodeId((prev) => (nodeIds.includes(prev) ? prev : nodeIds[0] ?? "1"));
+  }, [nodeIds]);
 
   // 同步高亮到节点 selected 状态
   React.useEffect(() => {
@@ -64,13 +101,13 @@ export function MindMap({ className }: MindMapProps) {
   React.useEffect(() => {
     const id = setInterval(() => {
       setHighlightedNodeId((prev) => {
-        const idx = MINDMAP_NODE_IDS.indexOf(prev);
-        const next = (idx + 1) % MINDMAP_NODE_IDS.length;
-        return MINDMAP_NODE_IDS[next] ?? prev;
+        const idx = nodeIds.indexOf(prev);
+        const next = (idx + 1) % nodeIds.length;
+        return nodeIds[next] ?? prev;
       });
     }, 5000);
     return () => clearInterval(id);
-  }, []);
+  }, [nodeIds]);
 
   const onNodeClick = React.useCallback(
     (_: React.MouseEvent, node: Node<{ label: string; timestamp?: string }>) => {
@@ -87,8 +124,38 @@ export function MindMap({ className }: MindMapProps) {
     setDialogOpen(false);
   };
 
+  if (loading) {
+    return (
+      <div
+        className={cn(
+          "relative flex h-full w-full min-h-[600px] items-center justify-center overflow-hidden rounded-lg border bg-muted/30 p-8",
+          className
+        )}
+      >
+        <div className="flex flex-col items-center gap-4">
+          <div
+            className="size-10 animate-spin rounded-full border-2 border-primary border-t-transparent"
+            aria-label="生成中"
+          />
+          <p className="text-sm text-muted-foreground">正在生成思维导图...</p>
+          <div className="flex gap-2">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="h-16 w-28 animate-pulse rounded-lg bg-muted"
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={cn("relative h-full w-full overflow-hidden", className)}>
+    <div
+      className={cn("relative h-full w-full min-h-[600px] overflow-hidden", className)}
+      style={{ width: "100%", height: "100%" }}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -96,6 +163,11 @@ export function MindMap({ className }: MindMapProps) {
         onEdgesChange={onEdgesChange as OnEdgesChange}
         onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
+        connectionLineType="bezier"
+        defaultEdgeOptions={{
+          type: "default",
+          style: { stroke: "#888", strokeWidth: 1.5 },
+        }}
         fitView
         minZoom={0.2}
         maxZoom={1.5}

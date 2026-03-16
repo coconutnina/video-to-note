@@ -47,6 +47,13 @@ export function SubtitlePanel({
   className,
 }: SubtitlePanelProps) {
   const displayLines = lines ?? MOCK_SUBTITLES;
+  console.log("SubtitlePanel props:", {
+    loading,
+    error,
+    linesLength: lines?.length ?? null,
+    displayLinesLength: displayLines.length,
+    firstLine: displayLines[0],
+  });
 
   const handleRowClick = (line: SubtitleLine) => {
     if (onRowClick) {

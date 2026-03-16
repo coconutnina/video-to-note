@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { translationCache } from "@/lib/api-cache";
 
 const BATCH_SIZE = 50;
 const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
@@ -94,16 +95,23 @@ async function translateBatch(
 
 export async function POST(request: NextRequest) {
   try {
+    const body = (await request.json().catch(() => null)) as
+      | { subtitles?: SubtitleItem[]; videoId?: string }
+      | null;
+
+    const subtitles = body?.subtitles ?? [];
+    const videoId = typeof body?.videoId === "string" ? body.videoId.trim() : undefined;
+
+    if (videoId && translationCache.has(videoId)) {
+      console.log("翻译命中缓存，跳过 DeepSeek 调用:", videoId);
+      return Response.json(translationCache.get(videoId));
+    }
+
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ error: "缺少 DeepSeek API Key" }, { status: 500 });
     }
 
-    const body = (await request.json().catch(() => null)) as
-      | { subtitles?: SubtitleItem[] }
-      | null;
-
-    const subtitles = body?.subtitles ?? [];
     if (!Array.isArray(subtitles) || subtitles.length === 0) {
       return NextResponse.json({ translations: [] });
     }
@@ -123,7 +131,12 @@ export async function POST(request: NextRequest) {
       allTranslations.push(...translations);
     }
 
-    return NextResponse.json({ translations: allTranslations });
+    const result = { translations: allTranslations };
+    if (videoId) {
+      translationCache.set(videoId, result);
+      console.log("已缓存翻译，videoId:", videoId);
+    }
+    return NextResponse.json(result);
   } catch (error) {
     console.error("字幕翻译失败:", error);
     return NextResponse.json(

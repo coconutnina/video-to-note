@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { transcriptCache } from "@/lib/api-cache";
 
 const SUPADATA_URL = "https://api.supadata.ai/v1/youtube/transcript";
 const ERROR_MESSAGE = "无法获取字幕";
@@ -67,9 +68,14 @@ function mergeTranscriptIntoSentences(
 }
 
 export async function GET(request: NextRequest) {
-  const videoId = request.nextUrl.searchParams.get("videoId");
-  if (!videoId?.trim()) {
+  const videoId = request.nextUrl.searchParams.get("videoId")?.trim();
+  if (!videoId) {
     return NextResponse.json({ error: ERROR_MESSAGE }, { status: 400 });
+  }
+
+  if (transcriptCache.has(videoId)) {
+    console.log("命中缓存，跳过 Supadata 调用:", videoId);
+    return Response.json(transcriptCache.get(videoId));
   }
 
   const apiKey = process.env.SUPADATA_API_KEY;
@@ -116,7 +122,10 @@ export async function GET(request: NextRequest) {
       transcript as { text: string; start: number; duration: number }[]
     );
 
-    return NextResponse.json({ transcript: mergedTranscript });
+    const result = { transcript: mergedTranscript };
+    transcriptCache.set(videoId, result);
+    console.log("已缓存 transcript，videoId:", videoId);
+    return NextResponse.json(result);
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       return NextResponse.json({ error: "timeout" }, { status: 408 });

@@ -4,9 +4,13 @@
  */
 const MOCK_VIDEO_ID = "dQw4w9WgXcQ";
 
+const VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]{11}$/;
+
 export function getYouTubeVideoId(urlOrId: string): string {
   const raw = (urlOrId ?? "").trim();
   if (!raw) return MOCK_VIDEO_ID;
+  // 裸视频 ID（11 位）直接返回，保证与 API 缓存 key 一致
+  if (VIDEO_ID_PATTERN.test(raw)) return raw;
 
   try {
     const url = new URL(raw.startsWith("http") ? raw : `https://${raw}`);
@@ -21,8 +25,7 @@ export function getYouTubeVideoId(urlOrId: string): string {
       return v || MOCK_VIDEO_ID;
     }
   } catch {
-    // 若看起来像 11 位 ID 则直接使用
-    if (/^[a-zA-Z0-9_-]{11}$/.test(raw)) return raw;
+    if (VIDEO_ID_PATTERN.test(raw)) return raw;
   }
   return MOCK_VIDEO_ID;
 }
