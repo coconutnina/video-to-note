@@ -351,7 +351,14 @@ function WorkspaceClient() {
         </div>
       )}
 
-      <AIChatPanel />
+      <AIChatPanel
+        transcript={
+          transcriptLines?.map((l) => ({
+            text: l.en,
+            start: l.timestampSeconds ?? 0,
+          })) ?? []
+        }
+      />
     </div>
   );
 }

@@ -112,6 +112,9 @@ export function AIChatPanel({ transcript = [], onSeekTo }: AIChatPanelProps) {
       (m) => ({ role: m.role, content: m.content })
     );
 
+    console.log("发送问答请求，transcript 长度:", transcript?.length);
+    console.log("mode:", mode);
+
     fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
