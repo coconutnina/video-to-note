@@ -126,9 +126,6 @@ export async function POST(request: NextRequest) {
     const rawHistory = Array.isArray(body?.history) ? body.history : [];
     const mode = body?.mode === "search" ? "search" : "video";
 
-    console.log("chat API 收到 transcript 长度:", transcript?.length);
-    console.log("chat API 收到 question:", question);
-
     if (!question) {
       return NextResponse.json({ error: "缺少 question" }, { status: 400 });
     }
@@ -138,13 +135,6 @@ export async function POST(request: NextRequest) {
       question,
       Math.min(MAX_TRANSCRIPT_CONTEXT, 8000)
     );
-
-    console.log("transcript 第一条:", transcriptContext.substring(0, 100));
-    console.log(
-      "transcript 最后100字:",
-      transcriptContext.substring(Math.max(0, transcriptContext.length - 100))
-    );
-    console.log("transcript 总长度:", transcriptContext.length);
 
     let searchContext = "";
     if (mode === "search") {
@@ -210,9 +200,6 @@ ${transcriptContext}`;
       { role: "user", content: question },
     ];
 
-    console.log("system prompt 长度:", messages[0].content.length);
-    console.log("system prompt 前200字:", messages[0].content.substring(0, 200));
-
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
@@ -247,13 +234,6 @@ ${transcriptContext}`;
       choices?: Array<{ message?: { content?: string } }>;
       error?: unknown;
     } | null;
-
-    console.log("DeepSeek 返回状态:", response.status);
-    console.log(
-      "DeepSeek 返回内容:",
-      data?.choices?.[0]?.message?.content?.substring(0, 200)
-    );
-    console.log("DeepSeek error:", data?.error);
 
     const answer =
       data?.choices?.[0]?.message?.content?.trim() ?? "回答生成失败，请重试";

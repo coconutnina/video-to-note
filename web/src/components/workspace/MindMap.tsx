@@ -112,14 +112,12 @@ export function MindMap({
   const onNodeClick = React.useCallback(
     (_: React.MouseEvent, node: Node<{ label: string; timestamp?: string }>) => {
       const ts = node.data?.timestamp ?? "";
-      console.log("跳转到时间戳：" + ts);
       setHighlightedNodeId(node.id);
     },
     []
   );
 
   const handleRegenerateConfirm = () => {
-    console.log("重新生成主题：" + regenerateTopic);
     setRegenerateTopic("");
     setDialogOpen(false);
   };

@@ -28,6 +28,7 @@ function WorkspaceClient() {
   const [subtitleMode, setSubtitleMode] = React.useState<SubtitleMode>("bilingual");
   const [mode, setMode] = React.useState<WorkspaceMode>("nav");
   const [videoTitle, setVideoTitle] = React.useState<string>("加载中...");
+  // 字幕加载状态：初始为 loading，只有 API 返回成功/失败后才改变，保证新视频加载时显示等待提示
   const [transcriptStatus, setTranscriptStatus] =
     React.useState<TranscriptStatus>("loading");
   const [elapsed, setElapsed] = React.useState(0);
@@ -69,18 +70,9 @@ function WorkspaceClient() {
     setTranslations({});
     fetchTranscript(videoId)
       .then((result) => {
-        if (result.error) {
-          if (result.error === "该视频暂无英文字幕") {
-            setTranscriptStatus("no_subtitle");
-            setTranscriptError(result.error);
-            setTranscriptLines([]);
-          } else {
-            setTranscriptStatus("error");
-            setTranscriptError(result.error);
-            setTranscriptLines(null);
-          }
-        } else {
-          const segments = result.transcript ?? [];
+        // 严格判断：只有明确有字幕数据才算成功，空对象 {} 或空 transcript 不算成功
+        if (result.transcript && result.transcript.length > 0) {
+          const segments = result.transcript;
           const lines: SubtitleLine[] = segments.map((seg) => ({
             timestamp: formatTimestamp(seg.start),
             timestampSeconds: seg.start,
@@ -89,7 +81,7 @@ function WorkspaceClient() {
           }));
           setTranscriptLines(lines);
           setTranscriptError(null);
-           setTranscriptStatus("success");
+          setTranscriptStatus("success");
 
           // 触发中文翻译（不会阻塞英文字幕显示）
           // 分句 + 分批并行翻译，避免断句且尽快返回首批结果
@@ -186,6 +178,14 @@ function WorkspaceClient() {
               }
             })();
           }
+        } else if (result.error === "no_subtitle") {
+          setTranscriptStatus("no_subtitle");
+          setTranscriptError("该视频暂无英文字幕");
+          setTranscriptLines([]);
+        } else {
+          setTranscriptStatus("error");
+          setTranscriptError(result?.error ?? "获取字幕失败，请稍后重试");
+          setTranscriptLines(null);
         }
       })
       .catch(() => {
@@ -195,6 +195,7 @@ function WorkspaceClient() {
       })
   }, [videoId]);
 
+  // 依赖 transcriptLines + translations，transcript 更新后 transcriptLines 会变，此处会重算
   const renderedLines = React.useMemo<SubtitleLine[] | null>(() => {
     if (!transcriptLines) return null;
     return transcriptLines.map((line, idx) => {
@@ -207,6 +208,7 @@ function WorkspaceClient() {
     });
   }, [transcriptLines, translations]);
 
+  // 加载中时每秒更新 elapsed，用于字幕面板「已等待 N 秒」提示
   React.useEffect(() => {
     if (transcriptStatus !== "loading") return;
     const timer = window.setInterval(() => {
@@ -276,7 +278,13 @@ function WorkspaceClient() {
                 onModeChange={setSubtitleMode}
                 activeIndex={2}
                 lines={renderedLines}
-                loading={transcriptStatus === "loading"}
+                transcriptStatus={transcriptStatus}
+                loading={
+                  transcriptStatus === "loading" ||
+                  (transcriptLines == null &&
+                    transcriptStatus !== "error" &&
+                    transcriptStatus !== "no_subtitle")
+                }
                 error={
                   transcriptStatus === "no_subtitle" || transcriptStatus === "error"
                     ? transcriptError
@@ -321,7 +329,13 @@ function WorkspaceClient() {
             onModeChange={setSubtitleMode}
             activeIndex={2}
             lines={renderedLines}
-            loading={transcriptStatus === "loading"}
+            transcriptStatus={transcriptStatus}
+            loading={
+              transcriptStatus === "loading" ||
+              (transcriptLines == null &&
+                transcriptStatus !== "error" &&
+                transcriptStatus !== "no_subtitle")
+            }
             error={
               transcriptStatus === "no_subtitle" || transcriptStatus === "error"
                 ? transcriptError
@@ -363,9 +377,23 @@ function WorkspaceClient() {
   );
 }
 
+function WorkspaceFallback() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-3 text-muted-foreground">
+        <div
+          className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent"
+          aria-label="加载中"
+        />
+        <p className="text-sm">页面加载中...</p>
+      </div>
+    </div>
+  );
+}
+
 export default function WorkspacePage() {
   return (
-    <React.Suspense fallback={null}>
+    <React.Suspense fallback={<WorkspaceFallback />}>
       <WorkspaceClient />
     </React.Suspense>
   );

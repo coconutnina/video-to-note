@@ -22,11 +22,6 @@ async function fetchWithRetry(
       return res;
     } catch (error) {
       clearTimeout(timeout);
-      console.log(
-        `第 ${i + 1} 次请求失败，${
-          i < retries - 1 ? "重试中..." : "已达最大重试次数"
-        }`
-      );
       if (i === retries - 1) {
         throw error;
       }
@@ -74,16 +69,17 @@ export async function GET(request: NextRequest) {
   }
 
   if (transcriptCache.has(videoId)) {
-    console.log("命中缓存，跳过 Supadata 调用:", videoId);
-    return Response.json(transcriptCache.get(videoId));
+    const cached = transcriptCache.get(videoId);
+    if (cached?.transcript && cached.transcript.length > 0) {
+      return NextResponse.json(cached);
+    }
+    transcriptCache.delete(videoId);
   }
 
   const apiKey = process.env.SUPADATA_API_KEY;
   if (!apiKey) {
     return NextResponse.json({ error: ERROR_MESSAGE }, { status: 500 });
   }
-
-  console.log("Supadata 请求开始，videoId:", videoId);
 
   try {
     const res = await fetchWithRetry(
@@ -95,19 +91,20 @@ export async function GET(request: NextRequest) {
 
     const data = await res.json().catch(() => ({}));
 
-    console.log("Supadata 响应状态:", res.status);
-    console.log(
-      "Supadata 返回内容:",
-      JSON.stringify(data).substring(0, 200)
-    );
-
     if (!res.ok) {
       return NextResponse.json({ error: ERROR_MESSAGE }, { status: 400 });
     }
 
     const content = data?.content;
     if (!Array.isArray(content)) {
-      return NextResponse.json({ error: "该视频暂无英文字幕" }, { status: 200 });
+      // content 不是数组，可能是网络问题或格式异常，抛出错误让重试逻辑处理
+      throw new Error(
+        `Supadata 返回格式异常: ${JSON.stringify(data).substring(0, 100)}`
+      );
+    }
+    if (content.length === 0) {
+      // 明确返回空数组，才是真的没有字幕
+      return NextResponse.json({ error: "no_subtitle" }, { status: 200 });
     }
 
     const transcript = content.map(
@@ -123,8 +120,9 @@ export async function GET(request: NextRequest) {
     );
 
     const result = { transcript: mergedTranscript };
-    transcriptCache.set(videoId, result);
-    console.log("已缓存 transcript，videoId:", videoId);
+    if (result.transcript && result.transcript.length > 0) {
+      transcriptCache.set(videoId, result);
+    }
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {

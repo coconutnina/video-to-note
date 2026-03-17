@@ -40,8 +40,6 @@ export function LeftSidebar({
   const handleNavClick = () => {
     if (onNavModeClick) {
       onNavModeClick();
-    } else {
-      console.log("切换导航模式");
     }
   };
 

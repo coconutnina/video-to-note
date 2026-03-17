@@ -103,7 +103,6 @@ export async function POST(request: NextRequest) {
     const videoId = typeof body?.videoId === "string" ? body.videoId.trim() : undefined;
 
     if (videoId && translationCache.has(videoId)) {
-      console.log("翻译命中缓存，跳过 DeepSeek 调用:", videoId);
       return Response.json(translationCache.get(videoId));
     }
 
@@ -134,7 +133,6 @@ export async function POST(request: NextRequest) {
     const result = { translations: allTranslations };
     if (videoId) {
       translationCache.set(videoId, result);
-      console.log("已缓存翻译，videoId:", videoId);
     }
     return NextResponse.json(result);
   } catch (error) {

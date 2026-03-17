@@ -229,11 +229,6 @@ export async function POST(request: NextRequest) {
 
     const searchIndex = buildSearchIndex(transcript);
 
-    console.log("收到参数:", {
-      transcriptLength: transcript.length,
-      videoTitle: rawTitle,
-    });
-
     const summaries = await summarizeChunks(transcript, apiKey);
     const summaryText = summaries
       .map((s) => `[CHUNK_${s.index}|${s.startTime}] ${s.content}`)
@@ -274,8 +269,6 @@ export async function POST(request: NextRequest) {
       throw new Error("DeepSeek 返回的脑图格式无效");
     }
 
-    console.log("根节点覆盖前:", (mindmap.root as { label?: unknown }).label);
-
     // 根节点不参与时间匹配，先置 null 再注入子节点时间戳（子节点只在父节点之后搜索）
     (mindmap.root as { timestamp?: string | null }).timestamp = null;
     injectTimestamps(mindmap.root, searchIndex);
@@ -289,7 +282,6 @@ export async function POST(request: NextRequest) {
       !invalidTitles.includes(titleToUse.toLowerCase())
     ) {
       mindmap.root.label = titleToUse;
-      console.log("根节点覆盖后:", (mindmap.root as { label?: unknown }).label);
     }
 
     function toSeconds(ts?: string | unknown): number {

@@ -13,15 +13,19 @@ import {
 
 export type SubtitleMode = "en" | "zh" | "bilingual";
 
+export type TranscriptStatus = "loading" | "success" | "no_subtitle" | "error";
+
 export interface SubtitlePanelProps {
   mode?: SubtitleMode;
   onModeChange?: (mode: SubtitleMode) => void;
   activeIndex?: number;
   /** 字幕数据；不传则用 mock */
   lines?: SubtitleLine[] | null;
+  /** 字幕加载状态，用于严格判断「暂无字幕」展示 */
+  transcriptStatus?: TranscriptStatus;
   /** 是否正在加载字幕 */
   loading?: boolean;
-  /** 错误或空状态文案：暂无字幕内容 / 该视频暂无英文字幕 / 字幕获取超时，请刷新重试 */
+  /** 错误文案：字幕获取超时、网络错误等（no_subtitle 由 transcriptStatus 单独展示） */
   error?: string | null;
   /** 加载状态下已等待的秒数，用于展示预估文案 */
   elapsedSeconds?: number;
@@ -40,26 +44,35 @@ export function SubtitlePanel({
   onModeChange,
   activeIndex = MOCK_CURRENT_INDEX,
   lines,
+  transcriptStatus,
   loading = false,
   error,
   elapsedSeconds,
   onRowClick,
   className,
 }: SubtitlePanelProps) {
-  const displayLines = lines ?? MOCK_SUBTITLES;
-  console.log("SubtitlePanel props:", {
-    loading,
-    error,
-    linesLength: lines?.length ?? null,
-    displayLinesLength: displayLines.length,
-    firstLine: displayLines[0],
-  });
+  // 有传入 lines 时用传入的，否则用 mock（仅在没有 loading/error 时展示 mock，避免遮盖加载态）
+  const displayLines = lines !== undefined && lines !== null ? lines : MOCK_SUBTITLES;
+
+  // 所有「还在加载」的情况统一显示计时提示（含 transcriptStatus=loading 或 error=loading 的并发等待）
+  const isLoading =
+    transcriptStatus === "loading" || error === "loading";
+
+  const [elapsed, setElapsed] = React.useState(0);
+  React.useEffect(() => {
+    if (!isLoading) {
+      setElapsed(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setElapsed((e) => e + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isLoading]);
 
   const handleRowClick = (line: SubtitleLine) => {
     if (onRowClick) {
       onRowClick(line.timestamp, line.timestampSeconds);
-    } else {
-      console.log(`跳转到时间戳：${line.timestamp}`);
     }
   };
 
@@ -92,24 +105,34 @@ export function SubtitlePanel({
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {loading && (
+        {isLoading && (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-8 text-center">
             <div
               className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent"
               aria-label="加载中"
             />
-            <p className="text-xs text-muted-foreground">
-              正在获取字幕...（预计需要 15-30 秒，已等待{" "}
-              {elapsedSeconds ?? 0} 秒）
+            <p className="text-sm text-muted-foreground">正在获取字幕...</p>
+            <p className="text-xs text-muted-foreground/80">
+              预计需要 15–30 秒，已等待 {elapsed} 秒
             </p>
           </div>
         )}
-        {!loading && error && (
+        {transcriptStatus === "no_subtitle" && (
+          <div className="flex flex-1 items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
+            该视频暂无英文字幕
+          </div>
+        )}
+        {transcriptStatus === "success" && displayLines.length === 0 && (
+          <div className="flex flex-1 items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
+            该视频暂无字幕
+          </div>
+        )}
+        {!isLoading && error && error !== "loading" && transcriptStatus === "error" && (
           <div className="flex flex-1 items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
             {error}
           </div>
         )}
-        {!loading && !error && displayLines.length > 0 && (
+        {!isLoading && displayLines.length > 0 && (
           <ul className="flex flex-col py-2">
             {displayLines.map((line, index) => (
               <li key={`${line.timestamp}-${index}`}>
