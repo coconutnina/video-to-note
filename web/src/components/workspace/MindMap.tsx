@@ -24,28 +24,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { MindMapNode } from "@/components/workspace/MindMapNode";
-import {
-  MINDMAP_EDGES,
-  MINDMAP_NODE_IDS,
-  MINDMAP_NODES,
-} from "@/components/workspace/mindmap-data";
 import type { FlowEdge, FlowNode } from "@/lib/mindmap";
 import { cn } from "@/lib/utils";
 
 const nodeTypes = { mindmap: MindMapNode };
 
-const defaultNodes: Node<{ label: string; timestamp?: string }>[] = MINDMAP_NODES.map(
-  (n) => ({
-    ...n,
-    type: "mindmap",
-  })
-);
-
 export interface MindMapProps {
   className?: string;
   /** 生成中时显示骨架屏 */
   loading?: boolean;
-  /** API 返回的节点/边，不传则用 mock */
+  /** API 返回的节点/边；不传或为空时显示空画布，mock 数据仅开发调试时手动传入 */
   initialNodes?: FlowNode[] | null;
   initialEdges?: FlowEdge[] | null;
 }
@@ -57,25 +45,22 @@ export function MindMap({
   initialEdges,
 }: MindMapProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(
-    (initialNodes?.length ? initialNodes : defaultNodes) as Node<{
+    (initialNodes?.length ? initialNodes : []) as Node<{
       label: string;
       timestamp?: string;
     }>[]
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    initialEdges?.length ? initialEdges : MINDMAP_EDGES
+    initialEdges?.length ? initialEdges : []
   );
 
   const nodeIds = React.useMemo(
-    () =>
-      initialNodes?.length
-        ? initialNodes.map((n) => n.id)
-        : MINDMAP_NODE_IDS,
+    () => (initialNodes?.length ? initialNodes.map((n) => n.id) : []),
     [initialNodes]
   );
 
   const [highlightedNodeId, setHighlightedNodeId] = React.useState<string>(
-    nodeIds[0] ?? "1"
+    nodeIds[0] ?? ""
   );
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [regenerateTopic, setRegenerateTopic] = React.useState("");
@@ -87,7 +72,7 @@ export function MindMap({
   }, [initialNodes, initialEdges, setNodes, setEdges]);
 
   React.useEffect(() => {
-    setHighlightedNodeId((prev) => (nodeIds.includes(prev) ? prev : nodeIds[0] ?? "1"));
+    setHighlightedNodeId((prev) => (nodeIds.includes(prev) ? prev : nodeIds[0] ?? ""));
   }, [nodeIds]);
 
   // 同步高亮到节点 selected 状态

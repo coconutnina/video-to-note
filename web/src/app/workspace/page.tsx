@@ -11,6 +11,8 @@ import { MindMap } from "@/components/workspace/MindMap";
 import { SubtitlePanel } from "@/components/workspace/SubtitlePanel";
 import type { SubtitleMode } from "@/components/workspace/SubtitlePanel";
 import { VideoPlayer } from "@/components/workspace/VideoPlayer";
+import type { FlowEdge, FlowNode } from "@/lib/mindmap";
+import { treeToFlow } from "@/lib/mindmap";
 import { fetchTranscript, formatTimestamp } from "@/lib/transcript";
 import { fetchVideoInfo } from "@/lib/video-info";
 import { getYouTubeVideoId } from "@/lib/youtube";
@@ -34,6 +36,9 @@ function WorkspaceClient() {
   const [elapsed, setElapsed] = React.useState(0);
   const [transcriptError, setTranscriptError] = React.useState<string | null>(null);
   const [transcriptLines, setTranscriptLines] = React.useState<SubtitleLine[] | null>(null);
+  const [mindmapNodes, setMindmapNodes] = React.useState<FlowNode[] | null>(null);
+  const [mindmapEdges, setMindmapEdges] = React.useState<FlowEdge[] | null>(null);
+  const [mindmapLoading, setMindmapLoading] = React.useState(false);
   const [translations, setTranslations] = React.useState<
     Record<number, string | null | undefined>
   >({});
@@ -61,12 +66,18 @@ function WorkspaceClient() {
       setTranscriptError(null);
       setTranscriptStatus("loading");
       setElapsed(0);
+      setMindmapNodes(null);
+      setMindmapEdges(null);
+      setMindmapLoading(false);
       setTranslations({});
       return;
     }
     setTranscriptStatus("loading");
     setElapsed(0);
     setTranscriptError(null);
+    setMindmapNodes(null);
+    setMindmapEdges(null);
+    setMindmapLoading(false);
     setTranslations({});
     fetchTranscript(videoId)
       .then((result) => {
@@ -82,6 +93,27 @@ function WorkspaceClient() {
           setTranscriptLines(lines);
           setTranscriptError(null);
           setTranscriptStatus("success");
+
+          // 异步生成脑图，不阻塞字幕显示
+          setMindmapLoading(true);
+          fetch("/api/generate-mindmap", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              transcript: segments,
+              videoTitle: videoTitle !== "加载中..." ? videoTitle : undefined,
+            }),
+          })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data?.mindmap?.root) {
+                const { nodes, edges } = treeToFlow(data.mindmap.root);
+                setMindmapNodes(nodes);
+                setMindmapEdges(edges);
+              }
+            })
+            .catch((err) => console.error("脑图生成失败:", err))
+            .finally(() => setMindmapLoading(false));
 
           // 触发中文翻译（不会阻塞英文字幕显示）
           // 分句 + 分批并行翻译，避免断句且尽快返回首批结果
@@ -193,7 +225,7 @@ function WorkspaceClient() {
         setTranscriptError("获取字幕失败，请稍后重试");
         setTranscriptLines(null);
       })
-  }, [videoId]);
+  }, [videoId, videoTitle]);
 
   // 依赖 transcriptLines + translations，transcript 更新后 transcriptLines 会变，此处会重算
   const renderedLines = React.useMemo<SubtitleLine[] | null>(() => {
@@ -266,7 +298,12 @@ function WorkspaceClient() {
             </Button>
           </header>
           <div className="relative flex-1 overflow-hidden">
-            <MindMap className="h-full w-full overflow-hidden" />
+            <MindMap
+              className="h-full w-full overflow-hidden"
+              loading={mindmapLoading}
+              initialNodes={mindmapNodes}
+              initialEdges={mindmapEdges}
+            />
           </div>
         </div>
         <div className="flex min-w-0 min-h-0 flex-[1] flex-col">
