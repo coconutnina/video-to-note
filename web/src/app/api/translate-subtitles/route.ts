@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { translationCache } from "@/lib/api-cache";
+import { deepseekStreamCompletion } from "@/lib/deepseek-stream";
+
+export const maxDuration = 60;
 
 const BATCH_SIZE = 50;
-const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 
 interface SubtitleItem {
   id?: number;
@@ -28,13 +30,9 @@ async function translateBatch(
   const systemPrompt =
     "你是专业字幕翻译员。用户给你的每条字幕都带有编号（id字段）。请将每条字幕翻译成自然流畅的中文，返回JSON数组，每个元素必须包含 id 和 translated 两个字段。id 必须和输入完全一致，不能改变。只返回JSON，不要任何其他内容。";
 
-  const response = await fetch(DEEPSEEK_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
+  let content: string;
+  try {
+    content = await deepseekStreamCompletion(apiKey, {
       model: "deepseek-chat",
       messages: [
         { role: "system", content: systemPrompt },
@@ -44,23 +42,13 @@ async function translateBatch(
         },
       ],
       max_tokens: 4000,
-    }),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "");
-    console.error("DeepSeek 请求失败:", response.status, errText);
+    });
+  } catch (e) {
+    console.error("DeepSeek 请求失败:", e);
     throw new Error("翻译请求失败");
   }
 
-  const data = await response.json().catch((e) => {
-    console.error("DeepSeek JSON 解析失败:", e);
-    return null;
-  });
-  const content: string | undefined =
-    data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.delta?.content;
-
-  if (!content) {
+  if (!content?.trim()) {
     throw new Error("翻译结果为空");
   }
 

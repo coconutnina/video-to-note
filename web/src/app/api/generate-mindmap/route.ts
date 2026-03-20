@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { deepseekStreamCompletion } from "@/lib/deepseek-stream";
 
-const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+export const maxDuration = 60;
+
 const CHUNK_SIZE = 300;
 const MAX_CHUNK_TEXT = 3000;
 
@@ -121,13 +123,9 @@ async function summarizeChunks(
         .join(" ")
         .substring(0, MAX_CHUNK_TEXT);
 
-      const res = await fetch(DEEPSEEK_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
+      let content: string;
+      try {
+        content = await deepseekStreamCompletion(apiKey, {
           model: "deepseek-chat",
           messages: [
             {
@@ -141,19 +139,13 @@ async function summarizeChunks(
             },
           ],
           max_tokens: 200,
-        }),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        throw new Error(`DeepSeek 摘要请求失败: ${res.status} ${errText}`);
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`DeepSeek 摘要请求失败: ${msg}`);
       }
 
-      const data = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const content = data?.choices?.[0]?.message?.content?.trim() ?? "";
-      return { index: i, startTime, content };
+      return { index: i, startTime, content: content.trim() };
     })
   );
 
@@ -234,13 +226,9 @@ export async function POST(request: NextRequest) {
       .map((s) => `[CHUNK_${s.index}|${s.startTime}] ${s.content}`)
       .join("\n\n");
 
-    const res = await fetch(DEEPSEEK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
+    let content: string;
+    try {
+      content = await deepseekStreamCompletion(apiKey, {
         model: "deepseek-chat",
         messages: [
           { role: "system", content: MINDMAP_SYSTEM_PROMPT },
@@ -250,18 +238,11 @@ export async function POST(request: NextRequest) {
           },
         ],
         max_tokens: 6000,
-      }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(`DeepSeek 脑图请求失败: ${res.status} ${errText}`);
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`DeepSeek 脑图请求失败: ${msg}`);
     }
-
-    const data = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = data?.choices?.[0]?.message?.content ?? "";
     const clean = content.replace(/```json\n?|\n?```/g, "").trim();
     const mindmap = JSON.parse(clean) as { root?: MindMapNodeRaw };
 

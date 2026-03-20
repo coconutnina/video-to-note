@@ -14,6 +14,12 @@ import { VideoPlayer } from "@/components/workspace/VideoPlayer";
 import type { FlowEdge, FlowNode } from "@/lib/mindmap";
 import { treeToFlow } from "@/lib/mindmap";
 import { fetchTranscript, formatTimestamp } from "@/lib/transcript";
+import {
+  getCachedMindmap,
+  getCachedTranslations,
+  setCachedMindmap,
+  setCachedTranslations,
+} from "@/lib/workspace-cache";
 import { fetchVideoInfo } from "@/lib/video-info";
 import { getYouTubeVideoId } from "@/lib/youtube";
 import type { SubtitleLine } from "@/components/workspace/subtitle-data";
@@ -98,33 +104,50 @@ function WorkspaceClient() {
           setTranscriptError(null);
           setTranscriptStatus("success");
 
-          // 异步生成脑图，不阻塞字幕显示
-          setMindmapLoading(true);
-          fetch("/api/generate-mindmap", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              transcript: segments,
-              videoTitle:
-                videoTitleRef.current !== "加载中..."
-                  ? videoTitleRef.current
-                  : undefined,
-            }),
-          })
-            .then((res) => res.json())
-            .then((data) => {
-              if (data?.mindmap?.root) {
-                const { nodes, edges } = treeToFlow(data.mindmap.root);
-                setMindmapNodes(nodes);
-                setMindmapEdges(edges);
-              }
+          // 异步生成脑图，不阻塞字幕显示（优先 localStorage）
+          const cachedMind = getCachedMindmap(videoId);
+          if (cachedMind) {
+            setMindmapNodes(cachedMind.nodes);
+            setMindmapEdges(cachedMind.edges);
+          } else {
+            setMindmapLoading(true);
+            fetch("/api/generate-mindmap", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                transcript: segments,
+                videoTitle:
+                  videoTitleRef.current !== "加载中..."
+                    ? videoTitleRef.current
+                    : undefined,
+              }),
             })
-            .catch((err) => console.error("脑图生成失败:", err))
-            .finally(() => setMindmapLoading(false));
+              .then((res) => res.json())
+              .then((data) => {
+                if (data?.mindmap?.root) {
+                  const { nodes, edges } = treeToFlow(data.mindmap.root);
+                  setMindmapNodes(nodes);
+                  setMindmapEdges(edges);
+                  setCachedMindmap(videoId, { nodes, edges });
+                }
+              })
+              .catch((err) => console.error("脑图生成失败:", err))
+              .finally(() => setMindmapLoading(false));
+          }
 
           // 触发中文翻译（不会阻塞英文字幕显示）
           // 分句 + 分批并行翻译，避免断句且尽快返回首批结果
-          if (segments.length > 0) {
+          const cachedTrans = getCachedTranslations(videoId);
+          const translationsCacheComplete =
+            cachedTrans &&
+            segments.length > 0 &&
+            segments.every((_, i) =>
+              Object.prototype.hasOwnProperty.call(cachedTrans, i)
+            );
+
+          if (translationsCacheComplete && cachedTrans) {
+            setTranslations(cachedTrans);
+          } else if (segments.length > 0) {
             const splitIntoBatches = (
               subs: typeof segments,
               targetBatchSize = 20
@@ -147,74 +170,122 @@ function WorkspaceClient() {
 
             const batches = splitIntoBatches(segments, 20);
 
+            const fetchBatchTranslations = async (
+              batch: typeof segments,
+              batchStart: number
+            ) => {
+              const res = await fetch("/api/translate-subtitles", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  subtitles: batch.map((seg, localIdx) => ({
+                    id: batchStart + localIdx,
+                    text: seg.text,
+                    start: seg.start,
+                    duration: seg.duration,
+                  })),
+                }),
+              });
+              if (!res.ok) {
+                throw new Error("翻译接口错误");
+              }
+              const data = (await res.json().catch(() => ({}))) as {
+                translations?: { id: number; translated: string }[];
+              };
+              const translations = data.translations ?? [];
+              if (!translations.length) {
+                throw new Error("翻译结果为空");
+              }
+              return translations;
+            };
+
+            const translationAcc: Record<number, string> = {};
+
+            const applyBatchTranslations = (
+              translations: { id: number; translated: string }[],
+              batchStart: number,
+              batchLength: number
+            ) => {
+              for (let j = 0; j < batchLength; j++) {
+                translationAcc[batchStart + j] = "";
+              }
+              translations.forEach((item) => {
+                if (typeof item.id === "number" && item.translated) {
+                  translationAcc[item.id] = item.translated;
+                }
+              });
+              setTranslations((prev) => {
+                const next: Record<number, string | null | undefined> = {
+                  ...prev,
+                };
+                for (let j = 0; j < batchLength; j++) {
+                  next[batchStart + j] = null;
+                }
+                translations.forEach((item) => {
+                  if (typeof item.id === "number" && item.translated) {
+                    next[item.id] = item.translated;
+                  }
+                });
+                return next;
+              });
+            };
+
+            const markBatchFailed = (
+              batchStart: number,
+              batchLength: number
+            ) => {
+              for (let j = 0; j < batchLength; j++) {
+                translationAcc[batchStart + j] = "";
+              }
+              setTranslations((prev) => {
+                const next: Record<number, string | null | undefined> = {
+                  ...prev,
+                };
+                for (let j = 0; j < batchLength; j++) {
+                  next[batchStart + j] = null;
+                }
+                return next;
+               });
+            };
+
             let startIndex = 0;
             const batchPromises = batches.map((batch) => {
               const currentStart = startIndex;
               startIndex += batch.length;
 
-              const promise = (async () => {
-                const res = await fetch("/api/translate-subtitles", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    subtitles: batch.map((seg, localIdx) => ({
-                      id: currentStart + localIdx,
-                      text: seg.text,
-                      start: seg.start,
-                      duration: seg.duration,
-                    })),
-                  }),
-                });
-                if (!res.ok) {
-                  throw new Error("翻译接口错误");
-                }
-                const data = (await res.json().catch(() => ({}))) as {
-                  translations?: { id: number; translated: string }[];
-                };
-                const translations = data.translations ?? [];
-                if (!translations.length) {
-                  throw new Error("翻译结果为空");
-                }
-                return translations;
-              })();
+              const promise = fetchBatchTranslations(batch, currentStart);
 
-              return { promise, startIndex: currentStart, batchLength: batch.length };
+              return {
+                promise,
+                startIndex: currentStart,
+                batchLength: batch.length,
+                batch,
+              };
             });
 
             (async () => {
-              for (const { promise, startIndex: batchStart, batchLength } of batchPromises) {
+              for (const {
+                promise,
+                startIndex: batchStart,
+                batchLength,
+                batch,
+              } of batchPromises) {
                 try {
                   const translations = await promise;
-
-                  setTranslations((prev) => {
-                    const next: Record<number, string | null | undefined> = {
-                      ...prev,
-                    };
-                    // 先将这一批所有 index 置为 null（表示已处理但可能无翻译）
-                    for (let j = 0; j < batchLength; j++) {
-                      next[batchStart + j] = null;
-                    }
-                    // 再用 DeepSeek 实际返回的结果覆盖
-                    translations.forEach((item) => {
-                      if (typeof item.id === "number" && item.translated) {
-                        next[item.id] = item.translated;
-                      }
-                    });
-                    return next;
-                  });
-                } catch (e) {
-                  // 该批失败则仅将该批对应行标记为已处理但无翻译（null）
-                  setTranslations((prev) => {
-                    const next: Record<number, string | null | undefined> = {
-                      ...prev,
-                    };
-                    for (let j = 0; j < batchLength; j++) {
-                      next[batchStart + j] = null;
-                    }
-                    return next;
-                  });
+                  applyBatchTranslations(translations, batchStart, batchLength);
+                } catch {
+                  try {
+                    const translations = await fetchBatchTranslations(
+                      batch,
+                      batchStart
+                    );
+                    applyBatchTranslations(translations, batchStart, batchLength);
+                  } catch {
+                    markBatchFailed(batchStart, batchLength);
+                  }
                 }
               }
+              setCachedTranslations(videoId, { ...translationAcc });
             })();
           }
         } else if (result.error === "no_subtitle") {
