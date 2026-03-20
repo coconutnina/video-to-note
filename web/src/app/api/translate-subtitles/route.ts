@@ -7,28 +7,25 @@ export const maxDuration = 60;
 const BATCH_SIZE = 50;
 
 interface SubtitleItem {
-  id?: number;
-  text: string;
-  start: number;
-  duration: number;
-}
-
-interface TranslateInputItem {
   id: number;
   text: string;
 }
 
-interface TranslateOutputItem {
-  id: number;
-  translated: string;
-}
+const systemPrompt = `你是专业字幕翻译员。
+输入是 JSON 数组，每条是一个完整句子。
+将每条翻译成自然流畅的中文。
+输出 JSON 数组，每个元素格式：{"id": 原id, "translated": "译文"}
+条数必须和输入完全一致。只返回 JSON，不要其他内容。`;
 
 async function translateBatch(
-  items: TranslateInputItem[],
+  items: SubtitleItem[],
   apiKey: string
-): Promise<TranslateOutputItem[]> {
-  const systemPrompt =
-    "你是专业字幕翻译员。用户给你的每条字幕都带有编号（id字段）。请将每条字幕翻译成自然流畅的中文，返回JSON数组，每个元素必须包含 id 和 translated 两个字段。id 必须和输入完全一致，不能改变。只返回JSON，不要任何其他内容。";
+): Promise<{ id: number; translated: string }[]> {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const userPayload = items.map((x) => ({ id: x.id, text: x.text }));
 
   let content: string;
   try {
@@ -38,53 +35,69 @@ async function translateBatch(
         { role: "system", content: systemPrompt },
         {
           role: "user",
-          content: JSON.stringify(items.map(({ id, text }) => ({ id, text }))),
+          content: JSON.stringify(userPayload),
         },
       ],
-      max_tokens: 4000,
+      max_tokens: 8000,
     });
   } catch (e) {
     console.error("DeepSeek 请求失败:", e);
     throw new Error("翻译请求失败");
   }
 
-  if (!content?.trim()) {
-    throw new Error("翻译结果为空");
+  const raw = (content ?? "").replace(/```json\n?|\n?```/g, "").trim();
+  if (!raw) {
+    console.warn("DeepSeek 翻译结果为空，已用空字符串补齐");
+    return items.map((i) => ({ id: i.id, translated: "" }));
   }
 
   let parsed: unknown;
   try {
-    const cleanContent = content.replace(/```json\n?|\n?```/g, "").trim();
-    parsed = JSON.parse(cleanContent);
+    parsed = JSON.parse(raw);
   } catch (e) {
-    console.error("DeepSeek 返回内容 JSON.parse 失败:", e, content);
-    throw new Error("翻译结果解析失败");
+    console.warn("DeepSeek 返回内容 JSON.parse 失败，已按 id 补空:", e);
+    return items.map((i) => ({ id: i.id, translated: "" }));
   }
 
   if (!Array.isArray(parsed)) {
-    throw new Error("翻译结果格式错误");
+    console.warn("翻译结果非数组，已按 id 补空");
+    return items.map((i) => ({ id: i.id, translated: "" }));
   }
 
-  // 期望格式：[{ id: number, translated: string }, ...]
-  const outputs: TranslateOutputItem[] = (parsed as any[])
-    .filter(
-      (item) =>
-        item &&
-        typeof item.id === "number" &&
-        typeof item.translated === "string"
-    )
-    .map((item) => ({
-      id: item.id as number,
-      translated: item.translated as string,
-    }));
+  const byId = new Map<number, string>();
+  for (const el of parsed) {
+    if (
+      el != null &&
+      typeof el === "object" &&
+      typeof (el as { id?: unknown }).id === "number" &&
+      typeof (el as { translated?: unknown }).translated === "string"
+    ) {
+      byId.set(
+        (el as { id: number }).id,
+        (el as { translated: string }).translated
+      );
+    }
+  }
 
-  return outputs;
+  if (byId.size !== items.length) {
+    console.warn(
+      "翻译结果条数与输入不一致，已按 id 截断或补空:",
+      byId.size,
+      "vs",
+      items.length
+    );
+  }
+
+  return items.map((it) => ({
+    id: it.id,
+    translated: byId.get(it.id) ?? "",
+  }));
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json().catch(() => null)) as
-      | { subtitles?: SubtitleItem[]; videoId?: string }
+      | { subtitles?: Partial<SubtitleItem>[]; videoId?: string }
       | null;
 
     const subtitles = body?.subtitles ?? [];
@@ -103,19 +116,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ translations: [] });
     }
 
-    const allTranslations: TranslateOutputItem[] = [];
+    const allTranslations: { id: number; translated: string }[] = [];
 
     for (let i = 0; i < subtitles.length; i += BATCH_SIZE) {
       const batch = subtitles.slice(i, i + BATCH_SIZE);
-      const items: TranslateInputItem[] = batch.map((s, localIdx) => ({
-        id:
-          typeof s.id === "number"
-            ? s.id
-            : i + localIdx, // 如果没传 id，就用全局索引兜底
-        text: s.text ?? "",
+      const items: SubtitleItem[] = batch.map((s, j) => ({
+        id: typeof s.id === "number" ? s.id : i + j,
+        text: (s.text as string) ?? "",
       }));
-      const translations = await translateBatch(items, apiKey);
-      allTranslations.push(...translations);
+      const batchTranslations = await translateBatch(items, apiKey);
+      allTranslations.push(...batchTranslations);
     }
 
     const result = { translations: allTranslations };
@@ -133,4 +143,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

@@ -17,13 +17,37 @@ import { fetchTranscript, formatTimestamp } from "@/lib/transcript";
 import {
   getCachedMindmap,
   getCachedTranslations,
+  isTranslationsComplete,
   setCachedMindmap,
   setCachedTranslations,
 } from "@/lib/workspace-cache";
 import { fetchVideoInfo } from "@/lib/video-info";
 import { getYouTubeVideoId } from "@/lib/youtube";
 import type { SubtitleLine } from "@/components/workspace/subtitle-data";
-import { ZH_PLACEHOLDER, ZH_UNAVAILABLE } from "@/components/workspace/subtitle-data";
+
+type TranscriptSegment = {
+  text: string;
+  start: number;
+  duration: number;
+};
+
+/** 按句末标点合并，最多 4 条合一组 */
+function mergeSegments(segments: TranscriptSegment[]) {
+  const groups: { en: string; start: number }[] = [];
+  let buf: string[] = [];
+  let startTime = 0;
+
+  segments.forEach((seg, i) => {
+    if (buf.length === 0) startTime = seg.start;
+    buf.push(seg.text);
+    const endsWithPunct = /[.?!]$/.test(seg.text.trim());
+    if (endsWithPunct || buf.length >= 4 || i === segments.length - 1) {
+      groups.push({ en: buf.join(" "), start: startTime });
+      buf = [];
+    }
+  });
+  return groups;
+}
 
 type WorkspaceMode = "nav" | "focus";
 type TranscriptStatus = "loading" | "success" | "no_subtitle" | "error";
@@ -46,12 +70,12 @@ function WorkspaceClient() {
   const [elapsed, setElapsed] = React.useState(0);
   const [transcriptError, setTranscriptError] = React.useState<string | null>(null);
   const [transcriptLines, setTranscriptLines] = React.useState<SubtitleLine[] | null>(null);
+  /** key 为合并后字幕行下标（与 transcriptLines 一致） */
+  const [translations, setTranslations] = React.useState<Record<number, string>>({});
+  const translationsRef = React.useRef<Record<number, string>>({});
   const [mindmapNodes, setMindmapNodes] = React.useState<FlowNode[] | null>(null);
   const [mindmapEdges, setMindmapEdges] = React.useState<FlowEdge[] | null>(null);
   const [mindmapLoading, setMindmapLoading] = React.useState(false);
-  const [translations, setTranslations] = React.useState<
-    Record<number, string | null | undefined>
-  >({});
   const [videoSlotRect, setVideoSlotRect] = React.useState<{
     top: number;
     left: number;
@@ -73,13 +97,14 @@ function WorkspaceClient() {
   React.useEffect(() => {
     if (!videoId) {
       setTranscriptLines(null);
+      setTranslations({});
+      translationsRef.current = {};
       setTranscriptError(null);
       setTranscriptStatus("loading");
       setElapsed(0);
       setMindmapNodes(null);
       setMindmapEdges(null);
       setMindmapLoading(false);
-      setTranslations({});
       return;
     }
     setTranscriptStatus("loading");
@@ -89,15 +114,18 @@ function WorkspaceClient() {
     setMindmapEdges(null);
     setMindmapLoading(false);
     setTranslations({});
+    translationsRef.current = {};
+    setTranscriptLines(null);
     fetchTranscript(videoId)
       .then((result) => {
         // 严格判断：只有明确有字幕数据才算成功，空对象 {} 或空 transcript 不算成功
         if (result.transcript && result.transcript.length > 0) {
-          const segments = result.transcript;
-          const lines: SubtitleLine[] = segments.map((seg) => ({
-            timestamp: formatTimestamp(seg.start),
-            timestampSeconds: seg.start,
-            en: seg.text,
+          const segments = result.transcript as TranscriptSegment[];
+          const merged = mergeSegments(segments);
+          const lines: SubtitleLine[] = merged.map((g) => ({
+            timestamp: formatTimestamp(g.start),
+            timestampSeconds: g.start,
+            en: g.en,
             zh: "",
           }));
           setTranscriptLines(lines);
@@ -135,29 +163,27 @@ function WorkspaceClient() {
               .finally(() => setMindmapLoading(false));
           }
 
-          // 触发中文翻译（不会阻塞英文字幕显示）
-          // 分句 + 分批并行翻译，避免断句且尽快返回首批结果
-          const cachedTrans = getCachedTranslations(videoId);
+          // 触发中文翻译（不会阻塞英文字幕显示）；分批并行，尽快返回首批结果
+          const cachedTranslations = getCachedTranslations(videoId);
+          const mergedLineCount = lines.length;
           const translationsCacheComplete =
-            cachedTrans &&
-            segments.length > 0 &&
-            segments.every((_, i) =>
-              Object.prototype.hasOwnProperty.call(cachedTrans, i)
-            );
+            cachedTranslations &&
+            isTranslationsComplete(cachedTranslations, mergedLineCount);
 
-          if (translationsCacheComplete && cachedTrans) {
-            setTranslations(cachedTrans);
-          } else if (segments.length > 0) {
+          if (translationsCacheComplete && cachedTranslations) {
+            translationsRef.current = { ...cachedTranslations };
+            setTranslations({ ...cachedTranslations });
+          } else if (mergedLineCount > 0) {
             const splitIntoBatches = (
-              subs: typeof segments,
+              subs: SubtitleLine[],
               targetBatchSize = 20
             ) => {
-              const batches: typeof segments[] = [];
-              let current: typeof segments = [];
+              const batches: SubtitleLine[][] = [];
+              let current: SubtitleLine[] = [];
               for (let i = 0; i < subs.length; i++) {
                 const item = subs[i];
                 current.push(item);
-                const text = (item.text ?? "").trim();
+                const text = (item.en ?? "").trim();
                 const isSentenceEnd = /[.?!]$/.test(text);
                 if (current.length >= targetBatchSize && isSentenceEnd) {
                   batches.push(current);
@@ -168,21 +194,19 @@ function WorkspaceClient() {
               return batches;
             };
 
-            const batches = splitIntoBatches(segments, 20);
+            const batches = splitIntoBatches(lines, 15);
 
             const fetchBatchTranslations = async (
-              batch: typeof segments,
+              batch: SubtitleLine[],
               batchStart: number
             ) => {
               const res = await fetch("/api/translate-subtitles", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  subtitles: batch.map((seg, localIdx) => ({
+                  subtitles: batch.map((line, localIdx) => ({
                     id: batchStart + localIdx,
-                    text: seg.text,
-                    start: seg.start,
-                    duration: seg.duration,
+                    text: line.en,
                   })),
                 }),
               });
@@ -190,102 +214,79 @@ function WorkspaceClient() {
                 throw new Error("翻译接口错误");
               }
               const data = (await res.json().catch(() => ({}))) as {
-                translations?: { id: number; translated: string }[];
+                translations?: { id?: number; translated?: string }[];
               };
-              const translations = data.translations ?? [];
-              if (!translations.length) {
-                throw new Error("翻译结果为空");
-              }
-              return translations;
+              return data.translations ?? [];
             };
-
-            const translationAcc: Record<number, string> = {};
 
             const applyBatchTranslations = (
-              translations: { id: number; translated: string }[],
               batchStart: number,
-              batchLength: number
+              items: { id?: number; translated?: string }[]
             ) => {
-              for (let j = 0; j < batchLength; j++) {
-                translationAcc[batchStart + j] = "";
-              }
-              translations.forEach((item) => {
-                if (typeof item.id === "number" && item.translated) {
-                  translationAcc[item.id] = item.translated;
-                }
-              });
               setTranslations((prev) => {
-                const next: Record<number, string | null | undefined> = {
-                  ...prev,
-                };
-                for (let j = 0; j < batchLength; j++) {
-                  next[batchStart + j] = null;
-                }
-                translations.forEach((item) => {
-                  if (typeof item.id === "number" && item.translated) {
-                    next[item.id] = item.translated;
-                  }
+                const next = { ...prev };
+                items.forEach((item, index) => {
+                  const id =
+                    typeof item.id === "number" ? item.id : batchStart + index;
+                  next[id] = item.translated ?? "";
                 });
+                translationsRef.current = next;
                 return next;
               });
             };
 
-            const markBatchFailed = (
-              batchStart: number,
-              batchLength: number
-            ) => {
-              for (let j = 0; j < batchLength; j++) {
-                translationAcc[batchStart + j] = "";
-              }
+            const markBatchFailed = (batchStart: number, batchLength: number) => {
+              if (batchLength <= 0) return;
               setTranslations((prev) => {
-                const next: Record<number, string | null | undefined> = {
-                  ...prev,
-                };
-                for (let j = 0; j < batchLength; j++) {
-                  next[batchStart + j] = null;
+                const next = { ...prev };
+                for (let i = 0; i < batchLength; i++) {
+                  next[batchStart + i] = "";
                 }
+                translationsRef.current = next;
                 return next;
-               });
+              });
             };
 
             let startIndex = 0;
-            const batchPromises = batches.map((batch) => {
+            const batchPromiseConfigs = batches.map((batch) => {
               const currentStart = startIndex;
               startIndex += batch.length;
-
-              const promise = fetchBatchTranslations(batch, currentStart);
-
               return {
-                promise,
+                batch,
                 startIndex: currentStart,
                 batchLength: batch.length,
-                batch,
               };
             });
 
+            const CONCURRENCY = 3;
+            const queue = [...batchPromiseConfigs];
+
             (async () => {
-              for (const {
-                promise,
-                startIndex: batchStart,
-                batchLength,
-                batch,
-              } of batchPromises) {
-                try {
-                  const translations = await promise;
-                  applyBatchTranslations(translations, batchStart, batchLength);
-                } catch {
+              const workers = Array.from({ length: CONCURRENCY }, async () => {
+                while (queue.length > 0) {
+                  const item = queue.shift()!;
+                  const { batch, startIndex: batchStart, batchLength } = item;
                   try {
-                    const translations = await fetchBatchTranslations(
+                    const batchTranslations = await fetchBatchTranslations(
                       batch,
                       batchStart
                     );
-                    applyBatchTranslations(translations, batchStart, batchLength);
+                    applyBatchTranslations(batchStart, batchTranslations);
                   } catch {
-                    markBatchFailed(batchStart, batchLength);
+                    try {
+                      const batchTranslations = await fetchBatchTranslations(
+                        batch,
+                        batchStart
+                      );
+                      applyBatchTranslations(batchStart, batchTranslations);
+                    } catch {
+                      markBatchFailed(batchStart, batchLength);
+                    }
                   }
                 }
-              }
-              setCachedTranslations(videoId, { ...translationAcc });
+              });
+              await Promise.all(workers);
+              setCachedTranslations(videoId, { ...translationsRef.current });
             })();
           }
         } else if (result.error === "no_subtitle") {
@@ -305,17 +306,15 @@ function WorkspaceClient() {
       })
   }, [videoId]);
 
-  // 依赖 transcriptLines + translations，transcript 更新后 transcriptLines 会变，此处会重算
   const renderedLines = React.useMemo<SubtitleLine[] | null>(() => {
     if (!transcriptLines) return null;
-    return transcriptLines.map((line, idx) => {
-      const t = translations[idx];
-      const zh =
-        t === undefined
+    return transcriptLines.map((line, idx) => ({
+      ...line,
+      zh:
+        translations[idx] === undefined
           ? "翻译中..."
-          : t ?? ""; // null -> 空白, string -> 翻译
-      return { ...line, zh };
-    });
+          : (translations[idx] ?? ""),
+    }));
   }, [transcriptLines, translations]);
 
   // 加载中时每秒更新 elapsed，用于字幕面板「已等待 N 秒」提示

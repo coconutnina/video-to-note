@@ -8,7 +8,7 @@ export interface CachedTranscript {
 }
 
 export interface CachedTranslation {
-  translations: { id: number; translated: string }[];
+  translations: { id?: number; translated: string }[];
 }
 
 const g = globalThis as unknown as {
