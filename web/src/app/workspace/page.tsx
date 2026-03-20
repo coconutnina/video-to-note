@@ -76,6 +76,7 @@ function WorkspaceClient() {
   const [mindmapNodes, setMindmapNodes] = React.useState<FlowNode[] | null>(null);
   const [mindmapEdges, setMindmapEdges] = React.useState<FlowEdge[] | null>(null);
   const [mindmapLoading, setMindmapLoading] = React.useState(false);
+  const [currentTime, setCurrentTime] = React.useState(0);
   const [videoSlotRect, setVideoSlotRect] = React.useState<{
     top: number;
     left: number;
@@ -105,6 +106,7 @@ function WorkspaceClient() {
       setMindmapNodes(null);
       setMindmapEdges(null);
       setMindmapLoading(false);
+      setCurrentTime(0);
       return;
     }
     setTranscriptStatus("loading");
@@ -116,6 +118,7 @@ function WorkspaceClient() {
     setTranslations({});
     translationsRef.current = {};
     setTranscriptLines(null);
+    setCurrentTime(0);
     fetchTranscript(videoId)
       .then((result) => {
         // 严格判断：只有明确有字幕数据才算成功，空对象 {} 或空 transcript 不算成功
@@ -390,7 +393,7 @@ function WorkspaceClient() {
               <SubtitlePanel
                 mode={subtitleMode}
                 onModeChange={setSubtitleMode}
-                activeIndex={2}
+                currentTimeSeconds={currentTime}
                 lines={renderedLines}
                 transcriptStatus={transcriptStatus}
                 loading={
@@ -441,7 +444,7 @@ function WorkspaceClient() {
           <SubtitlePanel
             mode={subtitleMode}
             onModeChange={setSubtitleMode}
-            activeIndex={2}
+            currentTimeSeconds={currentTime}
             lines={renderedLines}
             transcriptStatus={transcriptStatus}
             loading={
@@ -475,6 +478,7 @@ function WorkspaceClient() {
             videoId={videoId}
             title={videoTitle}
             className="h-full min-h-0"
+            onTimeUpdate={setCurrentTime}
           />
         </div>
       )}

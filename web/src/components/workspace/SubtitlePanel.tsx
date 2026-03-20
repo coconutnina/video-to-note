@@ -5,7 +5,6 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { SubtitleLine } from "./subtitle-data";
 import {
-  MOCK_CURRENT_INDEX,
   MOCK_SUBTITLES,
   ZH_PLACEHOLDER,
   ZH_UNAVAILABLE,
@@ -15,10 +14,24 @@ export type SubtitleMode = "en" | "zh" | "bilingual";
 
 export type TranscriptStatus = "loading" | "success" | "no_subtitle" | "error";
 
+function computeActiveIndex(
+  lines: SubtitleLine[],
+  currentTimeSeconds: number
+): number {
+  if (lines.length === 0 || currentTimeSeconds < 0) return -1;
+  let idx = -1;
+  lines.forEach((line, i) => {
+    const t = line.timestampSeconds ?? 0;
+    if (t <= currentTimeSeconds) idx = i;
+  });
+  return idx;
+}
+
 export interface SubtitlePanelProps {
   mode?: SubtitleMode;
   onModeChange?: (mode: SubtitleMode) => void;
-  activeIndex?: number;
+  /** 当前播放时间（秒），用于高亮与自动滚动 */
+  currentTimeSeconds?: number;
   /** 字幕数据；不传则用 mock */
   lines?: SubtitleLine[] | null;
   /** 字幕加载状态，用于严格判断「暂无字幕」展示 */
@@ -42,7 +55,7 @@ const MODE_LABELS: Record<SubtitleMode, string> = {
 export function SubtitlePanel({
   mode = "bilingual",
   onModeChange,
-  activeIndex = MOCK_CURRENT_INDEX,
+  currentTimeSeconds,
   lines,
   transcriptStatus,
   loading = false,
@@ -51,12 +64,51 @@ export function SubtitlePanel({
   onRowClick,
   className,
 }: SubtitlePanelProps) {
-  // 有传入 lines 时用传入的，否则用 mock（仅在没有 loading/error 时展示 mock，避免遮盖加载态）
   const displayLines = lines !== undefined && lines !== null ? lines : MOCK_SUBTITLES;
 
-  // 所有「还在加载」的情况统一显示计时提示（含 transcriptStatus=loading 或 error=loading 的并发等待）
   const isLoading =
     transcriptStatus === "loading" || error === "loading";
+
+  const activeIndex = React.useMemo(() => {
+    if (currentTimeSeconds === undefined) return -1;
+    return computeActiveIndex(displayLines, currentTimeSeconds);
+  }, [currentTimeSeconds, displayLines]);
+
+  const [userScrolling, setUserScrolling] = React.useState(false);
+  const resumeTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
+  const programmaticScrollRef = React.useRef(false);
+  const rowRefs = React.useRef<(HTMLLIElement | null)[]>([]);
+
+  React.useEffect(() => {
+    return () => {
+      if (resumeTimer.current !== undefined) {
+        clearTimeout(resumeTimer.current);
+      }
+    };
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (userScrolling || activeIndex < 0) return;
+    const el = rowRefs.current[activeIndex];
+    if (!el) return;
+    programmaticScrollRef.current = true;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    const t = window.setTimeout(() => {
+      programmaticScrollRef.current = false;
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [activeIndex, userScrolling]);
+
+  const handleListScroll = React.useCallback(() => {
+    if (programmaticScrollRef.current) return;
+    setUserScrolling(true);
+    if (resumeTimer.current !== undefined) {
+      clearTimeout(resumeTimer.current);
+    }
+    resumeTimer.current = setTimeout(() => setUserScrolling(false), 3000);
+  }, []);
 
   const [elapsed, setElapsed] = React.useState(0);
   React.useEffect(() => {
@@ -104,7 +156,10 @@ export function SubtitlePanel({
           ))}
         </div>
       </header>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div
+        onScroll={handleListScroll}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+      >
         {isLoading && (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-8 text-center">
             <div
@@ -135,13 +190,19 @@ export function SubtitlePanel({
         {!isLoading && displayLines.length > 0 && (
           <ul className="flex flex-col py-2">
             {displayLines.map((line, index) => (
-              <li key={`${line.timestamp}-${index}`}>
+              <li
+                key={`${line.timestamp}-${index}`}
+                ref={(el) => {
+                  rowRefs.current[index] = el;
+                }}
+              >
                 <button
                   type="button"
                   onClick={() => handleRowClick(line)}
+                  aria-current={index === activeIndex ? "true" : undefined}
                   className={cn(
                     "w-full cursor-pointer px-3 py-2 text-left transition-colors hover:bg-muted/80",
-                    index === activeIndex && "bg-blue-500/15"
+                    index === activeIndex && "rounded-md bg-[#e4e8f4]"
                   )}
                 >
                   <div className="text-xs text-muted-foreground">
