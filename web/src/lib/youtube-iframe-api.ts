@@ -40,4 +40,5 @@ export function loadYouTubeIframeAPI(): Promise<void> {
 export type YTPlayer = {
   getCurrentTime: () => number;
   destroy: () => void;
+  seekTo: (seconds: number, allowSeekAhead?: boolean) => void;
 };

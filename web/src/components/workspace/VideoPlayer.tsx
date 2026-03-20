@@ -16,19 +16,39 @@ export interface VideoPlayerProps {
   onTimeUpdate?: (seconds: number) => void;
 }
 
+export type VideoPlayerHandle = {
+  seekTo: (seconds: number) => void;
+};
+
 const YT_PLAYING = 1;
 
-export function VideoPlayer({
-  videoId,
-  title = "Machine Learning Fundamentals",
-  className,
-  onTimeUpdate,
-}: VideoPlayerProps) {
+export const VideoPlayer = React.forwardRef<
+  VideoPlayerHandle,
+  VideoPlayerProps
+>(function VideoPlayer(
+  { videoId, title = "Machine Learning Fundamentals", className, onTimeUpdate },
+  ref
+) {
   const containerId = React.useId().replace(/:/g, "");
+  const playerInstanceRef = React.useRef<YTPlayer | null>(null);
   const onTimeUpdateRef = React.useRef(onTimeUpdate);
   React.useEffect(() => {
     onTimeUpdateRef.current = onTimeUpdate;
   }, [onTimeUpdate]);
+
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      seekTo(seconds: number) {
+        try {
+          playerInstanceRef.current?.seekTo?.(seconds, true);
+        } catch {
+          /* Player 未就绪 */
+        }
+      },
+    }),
+    []
+  );
 
   React.useEffect(() => {
     if (!videoId) return;
@@ -79,6 +99,7 @@ export function VideoPlayer({
         playerVars: { rel: 0 },
         events: {
           onReady: () => {
+            playerInstanceRef.current = player;
             emit();
           },
           onStateChange: (e: { data: number }) => {
@@ -91,11 +112,13 @@ export function VideoPlayer({
           },
         },
       });
+      playerInstanceRef.current = player;
     });
 
     return () => {
       cancelled = true;
       stopPoll();
+      playerInstanceRef.current = null;
       try {
         player?.destroy?.();
       } catch {
@@ -124,4 +147,4 @@ export function VideoPlayer({
       </h2>
     </section>
   );
-}
+});

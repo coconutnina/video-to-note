@@ -10,7 +10,10 @@ import { LeftSidebar } from "@/components/workspace/LeftSidebar";
 import { MindMap } from "@/components/workspace/MindMap";
 import { SubtitlePanel } from "@/components/workspace/SubtitlePanel";
 import type { SubtitleMode } from "@/components/workspace/SubtitlePanel";
-import { VideoPlayer } from "@/components/workspace/VideoPlayer";
+import {
+  VideoPlayer,
+  type VideoPlayerHandle,
+} from "@/components/workspace/VideoPlayer";
 import type { FlowEdge, FlowNode } from "@/lib/mindmap";
 import { treeToFlow } from "@/lib/mindmap";
 import { fetchTranscript, formatTimestamp } from "@/lib/transcript";
@@ -87,6 +90,7 @@ function WorkspaceClient() {
   const wrapperRef = React.useRef<HTMLDivElement>(null);
   const slotNavRef = React.useRef<HTMLDivElement>(null);
   const slotFocusRef = React.useRef<HTMLDivElement>(null);
+  const videoPlayerRef = React.useRef<VideoPlayerHandle>(null);
 
   React.useEffect(() => {
     if (!videoId) return;
@@ -396,6 +400,7 @@ function WorkspaceClient() {
                 currentTimeSeconds={currentTime}
                 lines={renderedLines}
                 transcriptStatus={transcriptStatus}
+                onLineClick={(seconds) => videoPlayerRef.current?.seekTo(seconds)}
                 loading={
                   transcriptStatus === "loading" ||
                   (transcriptLines == null &&
@@ -447,6 +452,7 @@ function WorkspaceClient() {
             currentTimeSeconds={currentTime}
             lines={renderedLines}
             transcriptStatus={transcriptStatus}
+            onLineClick={(seconds) => videoPlayerRef.current?.seekTo(seconds)}
             loading={
               transcriptStatus === "loading" ||
               (transcriptLines == null &&
@@ -475,6 +481,7 @@ function WorkspaceClient() {
           }}
         >
           <VideoPlayer
+            ref={videoPlayerRef}
             videoId={videoId}
             title={videoTitle}
             className="h-full min-h-0"

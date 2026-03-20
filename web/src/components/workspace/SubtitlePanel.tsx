@@ -43,6 +43,8 @@ export interface SubtitlePanelProps {
   /** 加载状态下已等待的秒数，用于展示预估文案 */
   elapsedSeconds?: number;
   onRowClick?: (timestamp: string, timestampSeconds?: number) => void;
+  /** 点击字幕行跳转播放（秒） */
+  onLineClick?: (seconds: number) => void;
   className?: string;
 }
 
@@ -62,6 +64,7 @@ export function SubtitlePanel({
   error,
   elapsedSeconds,
   onRowClick,
+  onLineClick,
   className,
 }: SubtitlePanelProps) {
   const displayLines = lines !== undefined && lines !== null ? lines : MOCK_SUBTITLES;
@@ -121,12 +124,6 @@ export function SubtitlePanel({
     }, 1000);
     return () => clearInterval(timer);
   }, [isLoading]);
-
-  const handleRowClick = (line: SubtitleLine) => {
-    if (onRowClick) {
-      onRowClick(line.timestamp, line.timestampSeconds);
-    }
-  };
 
   const isPlaceholderZh = (zh: string) =>
     zh === ZH_PLACEHOLDER || zh === ZH_UNAVAILABLE;
@@ -196,9 +193,23 @@ export function SubtitlePanel({
                   rowRefs.current[index] = el;
                 }}
               >
-                <button
-                  type="button"
-                  onClick={() => handleRowClick(line)}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    if (line.timestampSeconds != null) {
+                      onLineClick?.(line.timestampSeconds);
+                    }
+                    onRowClick?.(line.timestamp, line.timestampSeconds);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    if (line.timestampSeconds != null) {
+                      onLineClick?.(line.timestampSeconds);
+                    }
+                    onRowClick?.(line.timestamp, line.timestampSeconds);
+                  }}
                   aria-current={index === activeIndex ? "true" : undefined}
                   className={cn(
                     "w-full cursor-pointer px-3 py-2 text-left transition-colors hover:bg-muted/80",
@@ -238,7 +249,7 @@ export function SubtitlePanel({
                       </div>
                     </>
                   )}
-                </button>
+                </div>
               </li>
             ))}
           </ul>
