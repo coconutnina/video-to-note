@@ -10,7 +10,6 @@ import {
 
 export interface VideoPlayerProps {
   videoId: string;
-  title?: string;
   className?: string;
   /** 播放进度（约每秒一次，依赖轮询 getCurrentTime） */
   onTimeUpdate?: (seconds: number) => void;
@@ -25,10 +24,7 @@ const YT_PLAYING = 1;
 export const VideoPlayer = React.forwardRef<
   VideoPlayerHandle,
   VideoPlayerProps
->(function VideoPlayer(
-  { videoId, title = "Machine Learning Fundamentals", className, onTimeUpdate },
-  ref
-) {
+>(function VideoPlayer({ videoId, className, onTimeUpdate }, ref) {
   const containerId = React.useId().replace(/:/g, "");
   const playerInstanceRef = React.useRef<YTPlayer | null>(null);
   const onTimeUpdateRef = React.useRef(onTimeUpdate);
@@ -134,17 +130,15 @@ export const VideoPlayer = React.forwardRef<
 
   return (
     <section
-      className={cn("flex flex-col gap-3", className)}
+      className={cn("flex h-full min-h-0 w-full flex-col", className)}
       aria-label="视频播放器"
     >
-      <div className="relative w-full overflow-hidden rounded-lg bg-black">
-        <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
-          <div id={containerId} className="absolute inset-0 h-full w-full" />
-        </div>
+      <div className="relative h-full w-full min-h-0 overflow-hidden rounded-lg bg-black">
+        <div
+          id={containerId}
+          className="absolute inset-0 h-full w-full [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:object-contain"
+        />
       </div>
-      <h2 className="line-clamp-2 text-sm font-medium text-foreground">
-        {title}
-      </h2>
     </section>
   );
 });

@@ -6,7 +6,6 @@ import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import { AIChatPanel } from "@/components/workspace/AIChatPanel";
-import { LeftSidebar } from "@/components/workspace/LeftSidebar";
 import { MindMap } from "@/components/workspace/MindMap";
 import { SubtitlePanel } from "@/components/workspace/SubtitlePanel";
 import type { SubtitleMode } from "@/components/workspace/SubtitlePanel";
@@ -419,33 +418,42 @@ function WorkspaceClient() {
         </div>
       </div>
 
-      {/* 专注模式布局：始终在 DOM 中，用 hidden / flex 控制显隐 */}
+      {/* 专注模式：视频在上（最多 65vh、16:9 居中），字幕在下；始终在 DOM 中，用 hidden / flex 控制显隐 */}
       <div
-        className={`h-full w-full overflow-hidden ${mode === "focus" ? "flex" : "hidden"}`}
+        className={`h-full w-full flex-col overflow-hidden ${mode === "focus" ? "flex" : "hidden"}`}
         aria-hidden={mode !== "focus"}
       >
-        <LeftSidebar onNavModeClick={toggleMode} />
-        <div className="flex min-w-0 flex-[7] flex-col gap-4 p-4">
-          <div className="flex items-center justify-between gap-2">
-            <Link
-              href="/"
-              className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline"
-            >
-              返回首页
-            </Link>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={toggleMode}
-              aria-label="切换到导航模式"
-            >
-              🗺 导航模式
-            </Button>
-          </div>
-          <div ref={slotFocusRef} className="min-h-0 flex-1" />
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b bg-background px-3 py-2">
+          <Link
+            href="/"
+            className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline"
+          >
+            返回首页
+          </Link>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={toggleMode}
+            aria-label="切换到导航模式"
+          >
+            🗺 导航模式
+          </Button>
+        </header>
+        {/* 视频区：最多占 65% 高度，保持 16:9 比例居中 */}
+        <div className="w-full shrink-0" style={{ maxHeight: "65vh" }}>
+          <div
+            ref={slotFocusRef}
+            className="mx-auto h-full"
+            style={{
+              aspectRatio: "16/9",
+              maxHeight: "65vh",
+              maxWidth: "calc(65vh * 16 / 9)",
+            }}
+          />
         </div>
-        <aside className="flex min-w-0 min-h-0 flex-[3] flex-col">
+        {/* 字幕区：剩余空间 */}
+        <div className="min-h-0 flex-1 overflow-hidden border-t">
           <SubtitlePanel
             mode={subtitleMode}
             onModeChange={setSubtitleMode}
@@ -466,7 +474,7 @@ function WorkspaceClient() {
             }
             elapsedSeconds={elapsed}
           />
-        </aside>
+        </div>
       </div>
 
       {/* 唯一一个播放器实例：绝对定位到当前模式的“槽位”，不随模式切换销毁 */}
@@ -483,7 +491,6 @@ function WorkspaceClient() {
           <VideoPlayer
             ref={videoPlayerRef}
             videoId={videoId}
-            title={videoTitle}
             className="h-full min-h-0"
             onTimeUpdate={setCurrentTime}
           />
