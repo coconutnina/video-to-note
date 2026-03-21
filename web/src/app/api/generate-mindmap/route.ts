@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deepseekStreamCompletion } from "@/lib/deepseek-stream";
+import type { EdgeType, MindMapTreeNode } from "@/lib/mindmap";
 
 export const maxDuration = 60;
-
-const CHUNK_SIZE = 300;
-const MAX_CHUNK_TEXT = 3000;
 
 interface TranscriptItem {
   text: string;
@@ -17,183 +15,109 @@ function formatTime(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-interface ChunkSummary {
-  index: number;
-  startTime: string;
-  content: string;
-}
-
-interface SearchIndexEntry {
-  text: string;
-  timestamp: string;
-}
-
-function buildSearchIndex(
-  transcript: TranscriptItem[]
-): SearchIndexEntry[] {
-  return transcript.map((s) => ({
-    text: s.text.toLowerCase(),
-    timestamp: formatTime(s.start),
-  }));
-}
-
-function findTimestamp(
-  quote: string | undefined,
-  searchIndex: SearchIndexEntry[]
-): { timestamp: string; index: number } {
-  if (!quote || searchIndex.length === 0)
-    return { timestamp: "00:00", index: 0 };
-  const q = quote.toLowerCase();
-  const words = q.split(/\s+/).filter((w) => w.length > 3);
-
-  let bestMatch = searchIndex[0];
-  let bestMatchIndex = 0;
-  let bestScore = 0;
-
-  searchIndex.forEach((entry, i) => {
-    let score = 0;
-    let consecutiveBonus = 0;
-    for (const word of words) {
-      if (entry.text.includes(word)) {
-        score += 1 + consecutiveBonus;
-        consecutiveBonus += 0.5;
-      } else {
-        consecutiveBonus = 0;
-      }
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = entry;
-      bestMatchIndex = i;
-    }
-  });
-
-  return { timestamp: bestMatch.timestamp, index: bestMatchIndex };
-}
-
-interface MindMapNodeRaw {
-  quote?: string;
-  children?: MindMapNodeRaw[];
-  [key: string]: unknown;
-}
-
-function injectTimestamps(
-  node: MindMapNodeRaw,
-  searchIndex: SearchIndexEntry[],
-  searchFromIndex = 0
-): void {
-  if (node.timestamp === null) {
-    // 根节点跳过，直接处理子节点
-    node.children?.forEach((child) =>
-      injectTimestamps(child, searchIndex, 0)
-    );
-    return;
-  }
-
-  // 只在 searchFromIndex 之后的字幕里搜索
-  const scopedIndex = searchIndex.slice(searchFromIndex);
-  const { timestamp, index } = findTimestamp(
-    typeof node.quote === "string" ? node.quote : undefined,
-    scopedIndex
-  );
-  node.timestamp = timestamp;
-
-  // 子节点从当前匹配位置之后开始搜索（全局 index）
-  const childSearchFrom = searchFromIndex + index;
-  node.children?.forEach((child) =>
-    injectTimestamps(child, searchIndex, childSearchFrom)
-  );
-}
-
-async function summarizeChunks(
+/**
+ * 按时间窗口合并字幕：窗口起始后累计满 windowSeconds 则推入一条窗口，最后一段也推入。
+ */
+function buildTimedWindows(
   transcript: TranscriptItem[],
-  apiKey: string
-): Promise<ChunkSummary[]> {
-  const chunks: TranscriptItem[][] = [];
-  for (let i = 0; i < transcript.length; i += CHUNK_SIZE) {
-    chunks.push(transcript.slice(i, i + CHUNK_SIZE));
+  windowSeconds = 30
+): { timestamp: string; text: string }[] {
+  const result: { timestamp: string; text: string }[] = [];
+  if (transcript.length === 0) return result;
+
+  let windowStart = transcript[0].start;
+  const buf: string[] = [];
+
+  for (const seg of transcript) {
+    if (buf.length > 0 && seg.start - windowStart >= windowSeconds) {
+      result.push({
+        timestamp: formatTime(windowStart),
+        text: buf.join(" "),
+      });
+      buf.length = 0;
+      windowStart = seg.start;
+    }
+    buf.push(seg.text);
   }
 
-  const summaries = await Promise.all(
-    chunks.map(async (chunk, i) => {
-      if (chunk.length === 0) return { index: i, startTime: "00:00", content: "" };
-      const startTime = formatTime(chunk[0].start);
-      const text = chunk
-        .map((s) => s.text)
-        .join(" ")
-        .substring(0, MAX_CHUNK_TEXT);
+  if (buf.length > 0) {
+    result.push({
+      timestamp: formatTime(windowStart),
+      text: buf.join(" "),
+    });
+  }
 
-      let content: string;
-      try {
-        content = await deepseekStreamCompletion(apiKey, {
-          model: "deepseek-chat",
-          messages: [
-            {
-              role: "system",
-              content:
-                "用2-3句话概括以下视频片段的核心内容，突出关键概念和重要信息，不要遗漏重点。只返回摘要文字，不要其他内容。",
-            },
-            {
-              role: "user",
-              content: `时间段：${startTime}\n\n${text}`,
-            },
-          ],
-          max_tokens: 200,
-        });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        throw new Error(`DeepSeek 摘要请求失败: ${msg}`);
-      }
-
-      return { index: i, startTime, content: content.trim() };
-    })
-  );
-
-  return summaries.filter((s) => s.content.length > 0);
+  return result;
 }
 
-const MINDMAP_SYSTEM_PROMPT = `你是一个专业的学习笔记生成器。输入是视频各时间段的摘要。
-请生成一个详细的思维导图，帮助用户用自己的话复述内容并做复习。
+const MINDMAP_SYSTEM_PROMPT = `你是专业的学习笔记与思维导图生成器。
 
-返回格式为JSON：
+输入格式：多行文本，每一行以 [MM:SS] 开头，表示该时间窗口内的字幕合并文本（可能跨越多条原始字幕）。时间戳来自视频时间轴，你必须严格依据这些时间戳，不得捏造。
+
+请根据输入生成一棵思维导图，只输出一个 JSON 对象，不要输出任何其他文字或 markdown。
+
+JSON 顶层结构：
 {
   "root": {
-    "id": "1",
-    "label": "视频核心主题",
-    "detail": "",
-    "children": [
-      {
-        "id": "2",
-        "label": "一级主题（简短标题）",
-        "quote": "the core idea of prompt engineering is",
-        "detail": "用1-2句话说明这个主题的核心内容或目的",
-        "children": [
-          {
-            "id": "3",
-            "label": "具体知识点",
-            "quote": "specific phrase from later in the video",
-            "detail": "详细解释：是什么、为什么、怎么做",
-            "children": []
-          }
-        ]
-      }
-    ]
+    "id": "字符串，唯一",
+    "label": "根节点标题",
+    "timestamp": "MM:SS 或留空",
+    "endTimestamp": "MM:SS 或留空",
+    "important": false,
+    "edgeType": "split",
+    "children": [ ... ]
   }
 }
 
-要求：
-- 层级不限制，根据内容复杂度自然展开，3小时视频可以有4-5层
-- 一级节点数量根据视频主题数量决定，不强制限制为5个
-- label 是简短标题（10字以内）
-- detail 是该节点的详细说明，越具体越好；detail 只在三级及以下节点填写，一二级节点 detail 留空字符串
-- 每个节点填写 quote 字段，值为该知识点在视频字幕中出现的一句原文（英文，5-10个单词），尽量选择该知识点首次被明确提及时的原句。例如："quote": "the core idea of prompt engineering is"。根节点不需要 quote。不需要填 timestamp 字段，由系统自动匹配。
-- 时间戳规则：父节点的 quote 必须来自该主题最早被提及的位置；子节点的 quote 必须来自父节点之后的字幕内容；同一父节点下的子节点，quote 对应的时间应该依次递增。
-- 只返回JSON，不要任何其他内容
+每个节点字段说明：
+- id：字符串，全树唯一
+- label：节点标题（见下方命名规则）
+- timestamp、endTimestamp：必须从输入行中的 [MM:SS] 中选取或推导，与内容对应；不能编造不存在的时间。父节点的时间范围必须覆盖其所有子节点的时间范围。
+- important：布尔值。true 表示核心重点；每个一级模块（根的直接子节点及其子树为一「模块」）下，最多 3 个子节点可标为 true。
+- edgeType：表示与父节点的关系，取值仅限：split（并列拆分，最常用）、parallel（并列方面）、causal（因果）、progressive（递进/步骤）
+- children：子节点数组，无子节点则为 []
 
-筛选原则：
-- 只保留视频中有实质内容的知识点，跳过闲聊、过渡语、重复内容
-- 每个节点必须有独立的信息价值，不要为了结构完整而硬凑节点
-- 宁可节点少而精，不要多而杂`;
+结构规则：
+- 固定为 4 层（根为第 0 层，向下共 4 层可见主题；根下第一个一级子节点 label 固定为「视频简介」，用于概括整体）
+- 一级节点：简短名词短语
+- 二级节点：优先使用疑问句形式（能概括该支主题时）
+- 三、四级：若单句超过约 20 字，使用「小标题：内容」形式；专业名词可在 label 中附英文（括号或斜杠）
+
+内容原则：
+- 只保留有信息价值的内容，跳过闲聊、过渡语、无实质信息的片段
+- 时间戳只能来自输入中出现的 [MM:SS]，父节点时间范围覆盖子节点
+
+只返回 JSON，不要代码块包裹。`;
+
+interface ApiMindMapNode {
+  id: string;
+  label: string;
+  timestamp?: string;
+  endTimestamp?: string;
+  important?: boolean;
+  edgeType?: string;
+  children?: ApiMindMapNode[];
+}
+
+function parseEdgeType(s: string | undefined): EdgeType | undefined {
+  if (s === "split" || s === "parallel" || s === "causal" || s === "progressive") {
+    return s;
+  }
+  return undefined;
+}
+
+function normalizeToTreeNode(n: ApiMindMapNode): MindMapTreeNode {
+  return {
+    id: String(n.id),
+    label: n.label,
+    timestamp: n.timestamp ?? "",
+    endTimestamp: n.endTimestamp,
+    important: n.important,
+    edgeType: parseEdgeType(n.edgeType),
+    detail: undefined,
+    children: n.children?.map(normalizeToTreeNode),
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -219,12 +143,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const searchIndex = buildSearchIndex(transcript);
-
-    const summaries = await summarizeChunks(transcript, apiKey);
-    const summaryText = summaries
-      .map((s) => `[CHUNK_${s.index}|${s.startTime}] ${s.content}`)
-      .join("\n\n");
+    const windows = buildTimedWindows(transcript, 30);
+    const timedText = windows
+      .map((w) => `[${w.timestamp}] ${w.text}`)
+      .join("\n");
 
     let content: string;
     try {
@@ -234,7 +156,7 @@ export async function POST(request: NextRequest) {
           { role: "system", content: MINDMAP_SYSTEM_PROMPT },
           {
             role: "user",
-            content: `请根据以下视频分段摘要生成思维导图：\n\n${summaryText}`,
+            content: timedText,
           },
         ],
         max_tokens: 6000,
@@ -243,18 +165,18 @@ export async function POST(request: NextRequest) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new Error(`DeepSeek 脑图请求失败: ${msg}`);
     }
+
     const clean = content.replace(/```json\n?|\n?```/g, "").trim();
-    const mindmap = JSON.parse(clean) as { root?: MindMapNodeRaw };
+    const mindmap = JSON.parse(clean) as {
+      root?: ApiMindMapNode;
+    };
 
     if (!mindmap?.root) {
       throw new Error("DeepSeek 返回的脑图格式无效");
     }
 
-    // 根节点不参与时间匹配，先置 null 再注入子节点时间戳（子节点只在父节点之后搜索）
-    (mindmap.root as { timestamp?: string | null }).timestamp = null;
-    injectTimestamps(mindmap.root, searchIndex);
+    const rootTree = normalizeToTreeNode(mindmap.root);
 
-    // 过滤掉明显是占位符的值，只有有效标题才覆盖
     const invalidTitles = ["加载中...", "loading", "undefined", ""];
     const titleToUse =
       typeof rawTitle === "string" ? rawTitle.trim() : "";
@@ -262,28 +184,10 @@ export async function POST(request: NextRequest) {
       titleToUse &&
       !invalidTitles.includes(titleToUse.toLowerCase())
     ) {
-      mindmap.root.label = titleToUse;
+      rootTree.label = titleToUse;
     }
 
-    function toSeconds(ts?: string | unknown): number {
-      if (!ts || typeof ts !== "string") return 0;
-      const parts = ts.split(":").map((n) => Number(n) || 0);
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-      if (parts.length === 2) return parts[0] * 60 + parts[1];
-      return 0;
-    }
-
-    function sortByTimestamp(node: MindMapNodeRaw): void {
-      if (!node.children || node.children.length === 0) return;
-      node.children.sort(
-        (a, b) => toSeconds(a.timestamp) - toSeconds(b.timestamp)
-      );
-      node.children.forEach((child) => sortByTimestamp(child));
-    }
-
-    sortByTimestamp(mindmap.root);
-
-    return NextResponse.json({ mindmap });
+    return NextResponse.json({ mindmap: { root: rootTree } });
   } catch (error) {
     console.error("generate-mindmap 失败:", error);
     return NextResponse.json(

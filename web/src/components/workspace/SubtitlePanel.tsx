@@ -45,6 +45,10 @@ export interface SubtitlePanelProps {
   onRowClick?: (timestamp: string, timestampSeconds?: number) => void;
   /** 点击字幕行跳转播放（秒） */
   onLineClick?: (seconds: number) => void;
+  /** 为 true 时隐藏英文/中文/双语切换，固定按双语展示（专注模式） */
+  hideModeToggle?: boolean;
+  /** 为 true 时隐藏整个标题栏（含「双语字幕」与模式切换） */
+  hideHeader?: boolean;
   className?: string;
 }
 
@@ -65,9 +69,13 @@ export function SubtitlePanel({
   elapsedSeconds,
   onRowClick,
   onLineClick,
+  hideModeToggle = false,
+  hideHeader = false,
   className,
 }: SubtitlePanelProps) {
   const displayLines = lines !== undefined && lines !== null ? lines : MOCK_SUBTITLES;
+  const displayMode: SubtitleMode =
+    hideHeader || hideModeToggle ? "bilingual" : mode;
 
   const isLoading =
     transcriptStatus === "loading" || error === "loading";
@@ -133,26 +141,30 @@ export function SubtitlePanel({
       className={cn("flex h-full min-h-0 flex-col border-l bg-muted/30", className)}
       aria-label="字幕面板"
     >
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b bg-background px-3 py-2">
-        <h3 className="text-sm font-medium">双语字幕</h3>
-        <div className="flex gap-0.5">
-          {(["en", "zh", "bilingual"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => onModeChange?.(m)}
-              className={cn(
-                "rounded px-2 py-1 text-xs font-medium transition-colors",
-                mode === m
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-            >
-              {MODE_LABELS[m]}
-            </button>
-          ))}
-        </div>
-      </header>
+      {!hideHeader && (
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b bg-background px-3 py-2">
+          <h3 className="text-sm font-medium">双语字幕</h3>
+          {!hideModeToggle && (
+            <div className="flex gap-0.5">
+              {(["en", "zh", "bilingual"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => onModeChange?.(m)}
+                  className={cn(
+                    "rounded px-2 py-1 text-xs font-medium transition-colors",
+                    mode === m
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {MODE_LABELS[m]}
+                </button>
+              ))}
+            </div>
+          )}
+        </header>
+      )}
       <div
         onScroll={handleListScroll}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto"
@@ -219,10 +231,10 @@ export function SubtitlePanel({
                   <div className="text-xs text-muted-foreground">
                     [{line.timestamp}]
                   </div>
-                  {mode === "en" && (
+                  {displayMode === "en" && (
                     <div className="mt-0.5 text-sm text-foreground">{line.en}</div>
                   )}
-                  {mode === "zh" && (
+                  {displayMode === "zh" && (
                     <div
                       className={cn(
                         "mt-0.5 text-sm",
@@ -234,7 +246,7 @@ export function SubtitlePanel({
                       {line.zh}
                     </div>
                   )}
-                  {mode === "bilingual" && (
+                  {displayMode === "bilingual" && (
                     <>
                       <div className="mt-0.5 text-sm text-foreground">
                         {line.en}

@@ -21,8 +21,15 @@ flushLegacyWorkspaceStorageOnce();
 
 const CACHE_VERSION = "v5";
 
-function cacheKey(videoId: string, type: "translations" | "mindmap") {
+/** 仅脑图： bump 后旧条目不再命中，便于测试/迭代脑图格式 */
+const MINDMAP_STORAGE_VERSION = "v2";
+
+function cacheKey(videoId: string, type: "translations") {
   return `workspace:${CACHE_VERSION}:${type}:${videoId}`;
+}
+
+function mindmapCacheKey(videoId: string) {
+  return `workspace:${CACHE_VERSION}:mindmap:${MINDMAP_STORAGE_VERSION}:${videoId}`;
 }
 
 /** 校验合并后字幕行 0..lineCount-1 是否都有条目（允许空字符串） */
@@ -78,7 +85,7 @@ export function getCachedMindmap(
 ): { nodes: FlowNode[]; edges: FlowEdge[] } | null {
   try {
     if (typeof localStorage === "undefined") return null;
-    const raw = localStorage.getItem(cacheKey(videoId, "mindmap"));
+    const raw = localStorage.getItem(mindmapCacheKey(videoId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       nodes?: FlowNode[];
@@ -106,7 +113,7 @@ export function setCachedMindmap(
   try {
     if (typeof localStorage === "undefined") return;
     localStorage.setItem(
-      cacheKey(videoId, "mindmap"),
+      mindmapCacheKey(videoId),
       JSON.stringify(data)
     );
   } catch {
@@ -117,7 +124,20 @@ export function setCachedMindmap(
 export function clearCachedMindmap(videoId: string): void {
   try {
     if (typeof localStorage === "undefined") return;
-    localStorage.removeItem(cacheKey(videoId, "mindmap"));
+    localStorage.removeItem(mindmapCacheKey(videoId));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 删除当前版本前缀下所有脑图缓存（含历史无子版本号的键） */
+export function clearAllCachedMindmaps(): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const prefix = `workspace:${CACHE_VERSION}:mindmap:`;
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith(prefix)) localStorage.removeItem(k);
+    }
   } catch {
     /* ignore */
   }

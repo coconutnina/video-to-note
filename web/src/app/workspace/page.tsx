@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import * as React from "react";
+import { ArrowLeft, Map, Maximize, Minimize } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { AIChatPanel } from "@/components/workspace/AIChatPanel";
@@ -17,6 +18,7 @@ import type { FlowEdge, FlowNode } from "@/lib/mindmap";
 import { treeToFlow } from "@/lib/mindmap";
 import { fetchTranscript, formatTimestamp } from "@/lib/transcript";
 import {
+  clearAllCachedMindmaps,
   getCachedMindmap,
   getCachedTranslations,
   isTranslationsComplete,
@@ -54,9 +56,32 @@ function mergeSegments(segments: TranscriptSegment[]) {
 type WorkspaceMode = "nav" | "focus";
 type TranscriptStatus = "loading" | "success" | "no_subtitle" | "error";
 
+function parseTimestampToSeconds(time: string): number {
+  const parts = time.split(":").map((p) => Number(p));
+  if (parts.some((n) => Number.isNaN(n))) return 0;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return 0;
+}
+
 function WorkspaceClient() {
   const searchParams = useSearchParams();
   const url = searchParams.get("url") ?? "";
+
+  /** 测试用：访问 `...?clearMindmapCache=1` 会清空脑图 localStorage 并去掉该参数 */
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("clearMindmapCache") !== "1") return;
+    clearAllCachedMindmaps();
+    sp.delete("clearMindmapCache");
+    const qs = sp.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`
+    );
+  }, []);
 
   const videoId = React.useMemo(() => getYouTubeVideoId(url), [url]);
   const [subtitleMode, setSubtitleMode] = React.useState<SubtitleMode>("bilingual");
@@ -79,6 +104,7 @@ function WorkspaceClient() {
   const [mindmapEdges, setMindmapEdges] = React.useState<FlowEdge[] | null>(null);
   const [mindmapLoading, setMindmapLoading] = React.useState(false);
   const [currentTime, setCurrentTime] = React.useState(0);
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [videoSlotRect, setVideoSlotRect] = React.useState<{
     top: number;
     left: number;
@@ -355,6 +381,30 @@ function WorkspaceClient() {
 
   const toggleMode = () => setMode((m) => (m === "nav" ? "focus" : "nav"));
 
+  React.useEffect(() => {
+    const onFs = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+
+  const toggleFullscreen = React.useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void document.documentElement.requestFullscreen();
+    }
+  }, []);
+
+  const chatTranscript =
+    transcriptLines?.map((l) => ({
+      text: l.en,
+      start: l.timestampSeconds ?? 0,
+    })) ?? [];
+
+  const handleChatSeekTo = React.useCallback((time: string) => {
+    videoPlayerRef.current?.seekTo(parseTimestampToSeconds(time));
+  }, []);
+
   return (
     <div ref={wrapperRef} className="relative flex h-screen overflow-hidden bg-background">
       {/* 导航模式布局：始终在 DOM 中，用 hidden / flex 控制显隐 */}
@@ -386,6 +436,7 @@ function WorkspaceClient() {
               loading={mindmapLoading}
               initialNodes={mindmapNodes}
               initialEdges={mindmapEdges}
+              onNodeClick={(seconds) => videoPlayerRef.current?.seekTo(seconds)}
             />
           </div>
         </div>
@@ -418,61 +469,88 @@ function WorkspaceClient() {
         </div>
       </div>
 
-      {/* 专注模式：视频在上（最多 65vh、16:9 居中），字幕在下；始终在 DOM 中，用 hidden / flex 控制显隐 */}
+      {/* 专注模式：左侧视频+字幕，右侧 AI 固定栏 */}
       <div
-        className={`h-full w-full flex-col overflow-hidden ${mode === "focus" ? "flex" : "hidden"}`}
+        className={`h-full w-full min-h-0 overflow-hidden ${mode === "focus" ? "flex" : "hidden"}`}
         aria-hidden={mode !== "focus"}
       >
-        <header className="flex shrink-0 items-center justify-between gap-2 border-b bg-background px-3 py-2">
-          <Link
-            href="/"
-            className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline"
-          >
-            返回首页
-          </Link>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={toggleMode}
-            aria-label="切换到导航模式"
-          >
-            🗺 导航模式
-          </Button>
-        </header>
-        {/* 视频区：最多占 65% 高度，保持 16:9 比例居中 */}
-        <div className="w-full shrink-0" style={{ maxHeight: "65vh" }}>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* 视频容器：黑底 + 16:9 画面居中，左右黑边上的控制 */}
           <div
-            ref={slotFocusRef}
-            className="mx-auto h-full"
-            style={{
-              aspectRatio: "16/9",
-              maxHeight: "65vh",
-              maxWidth: "calc(65vh * 16 / 9)",
-            }}
-          />
+            className="relative w-full shrink-0 bg-black"
+            style={{ height: "60vh" }}
+          >
+            <div
+              ref={slotFocusRef}
+              className="mx-auto h-full"
+              style={{
+                aspectRatio: "16/9",
+                maxWidth: "calc(60vh * 16 / 9)",
+              }}
+            />
+            <div className="absolute left-0 top-0 z-20 flex h-full w-10 flex-col items-center justify-between py-4">
+              <Link
+                href="/"
+                className="text-white/60 transition-colors hover:text-white"
+                title="返回首页"
+                aria-label="返回首页"
+              >
+                <ArrowLeft size={18} aria-hidden />
+              </Link>
+              <button
+                type="button"
+                onClick={toggleMode}
+                className="text-white/60 transition-colors hover:text-white"
+                title="导航模式"
+                aria-label="切换到导航模式"
+              >
+                <Map size={18} aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="text-white/60 transition-colors hover:text-white"
+                title={isFullscreen ? "退出全屏" : "全屏"}
+                aria-label={isFullscreen ? "退出全屏" : "全屏"}
+              >
+                {isFullscreen ? (
+                  <Minimize size={18} aria-hidden />
+                ) : (
+                  <Maximize size={18} aria-hidden />
+                )}
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden border-t">
+            <SubtitlePanel
+              mode="bilingual"
+              hideHeader
+              hideModeToggle
+              className="border-l-0"
+              currentTimeSeconds={currentTime}
+              lines={renderedLines}
+              transcriptStatus={transcriptStatus}
+              onLineClick={(seconds) => videoPlayerRef.current?.seekTo(seconds)}
+              loading={
+                transcriptStatus === "loading" ||
+                (transcriptLines == null &&
+                  transcriptStatus !== "error" &&
+                  transcriptStatus !== "no_subtitle")
+              }
+              error={
+                transcriptStatus === "no_subtitle" || transcriptStatus === "error"
+                  ? transcriptError
+                  : null
+              }
+              elapsedSeconds={elapsed}
+            />
+          </div>
         </div>
-        {/* 字幕区：剩余空间 */}
-        <div className="min-h-0 flex-1 overflow-hidden border-t">
-          <SubtitlePanel
-            mode={subtitleMode}
-            onModeChange={setSubtitleMode}
-            currentTimeSeconds={currentTime}
-            lines={renderedLines}
-            transcriptStatus={transcriptStatus}
-            onLineClick={(seconds) => videoPlayerRef.current?.seekTo(seconds)}
-            loading={
-              transcriptStatus === "loading" ||
-              (transcriptLines == null &&
-                transcriptStatus !== "error" &&
-                transcriptStatus !== "no_subtitle")
-            }
-            error={
-              transcriptStatus === "no_subtitle" || transcriptStatus === "error"
-                ? transcriptError
-                : null
-            }
-            elapsedSeconds={elapsed}
+        <div className="flex h-full w-[360px] shrink-0 flex-col border-l border-border bg-background">
+          <AIChatPanel
+            variant="dock"
+            transcript={chatTranscript}
+            onSeekTo={handleChatSeekTo}
           />
         </div>
       </div>
@@ -497,14 +575,13 @@ function WorkspaceClient() {
         </div>
       )}
 
-      <AIChatPanel
-        transcript={
-          transcriptLines?.map((l) => ({
-            text: l.en,
-            start: l.timestampSeconds ?? 0,
-          })) ?? []
-        }
-      />
+      {mode === "nav" && (
+        <AIChatPanel
+          variant="fab"
+          transcript={chatTranscript}
+          onSeekTo={handleChatSeekTo}
+        />
+      )}
     </div>
   );
 }
