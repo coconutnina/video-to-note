@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils";
 
 const nodeTypes = { mindmap: MindMapNode };
 
-const NODE_EXPORT_WIDTH = 280;
+const NODE_EXPORT_WIDTH = 320;
 const NODE_EXPORT_HEIGHT = 120;
 const BBOX_PADDING = 60;
 
@@ -299,7 +299,7 @@ function MindMapCanvas({
               </Button>
               {downloadMenuOpen ? (
                 <div
-                  className="absolute left-0 top-full z-50 mt-1 min-w-[168px] rounded-md border bg-popover p-1 text-sm shadow-md"
+                  className="absolute left-0 top-full z-50 mt-1 min-w-[168px] rounded-md border border-gray-200 bg-white p-1 text-sm shadow-md"
                   role="menu"
                 >
                   <button

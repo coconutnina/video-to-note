@@ -38,31 +38,30 @@ export interface FlowEdge {
   markerEnd?: undefined;
 }
 
-const X_SPACING = 320;
-const PADDING = 16;
+const NODE_WIDTH = 300;
+const X_SPACING = 440;
+const PADDING = 48;
 
-const LABEL_HEIGHT = 24;
+const LABEL_LINE_HEIGHT = 20;
 const TIMESTAMP_HEIGHT = 20;
-const CHARS_PER_LINE = 22;
-const DETAIL_LINE_HEIGHT = 18;
+const CHARS_PER_LINE = 28;
+const DETAIL_LINE_HEIGHT = 16;
 
 /** 根据节点内容估算高度，用于布局避免重叠 */
 function estimateNodeHeight(flowNode: {
   data?: { depth?: number; detail?: string; label?: string };
 }): number {
-  const depth = flowNode.data?.depth ?? 0;
-  const hasDetail = depth >= 2 && flowNode.data?.detail;
-
-  if (!hasDetail) {
-    return LABEL_HEIGHT + TIMESTAMP_HEIGHT + 24;
-  }
-  const lines = Math.ceil(
-    (flowNode.data?.detail?.length ?? 0) / CHARS_PER_LINE
-  );
+  const label = flowNode.data?.label ?? "";
+  const detail = flowNode.data?.detail?.trim() ?? "";
+  const hasDetail = detail.length > 0;
+  const labelLines = Math.max(1, Math.ceil(label.length / CHARS_PER_LINE));
+  const detailLines = hasDetail
+    ? Math.max(1, Math.ceil(detail.length / CHARS_PER_LINE))
+    : 0;
   return (
-    LABEL_HEIGHT +
+    labelLines * LABEL_LINE_HEIGHT +
+    (hasDetail ? detailLines * DETAIL_LINE_HEIGHT + 8 : 0) +
     TIMESTAMP_HEIGHT +
-    lines * DETAIL_LINE_HEIGHT +
     32
   );
 }
@@ -100,32 +99,39 @@ export function treeToFlow(root: MindMapTreeNode): {
         data: flowDataBase,
         position: { x: depth * X_SPACING, y: globalY },
         type: "mindmap",
+        style: { width: NODE_WIDTH },
       });
       globalY += h + PADDING;
     } else {
-      const startY = globalY;
-      (node.children ?? []).forEach((child) => {
+      const kids = node.children ?? [];
+      kids.forEach((child) => {
         edges.push({
           id: `e${node.id}-${child.id}`,
           source: node.id,
           target: child.id,
           sourceHandle: "right",
           targetHandle: "left",
-          type: "smoothstep",
+          type: "step",
           style: { stroke: "#94a3b8", strokeWidth: 1.5 },
         });
         buildFlow(child, depth + 1);
       });
-      const endY = globalY;
       const selfH = estimateNodeHeight({ data: nodeData });
+      const firstId = kids[0]!.id;
+      const lastId = kids[kids.length - 1]!.id;
+      const firstFlowNode = nodes.find((n) => n.id === firstId);
+      const lastFlowNode = nodes.find((n) => n.id === lastId);
+      const firstChildY = firstFlowNode?.position.y ?? 0;
+      const lastChildY = lastFlowNode?.position.y ?? firstChildY;
       nodes.push({
         id: node.id,
         data: flowDataBase,
         position: {
           x: depth * X_SPACING,
-          y: (startY + endY) / 2 - selfH / 2,
+          y: (firstChildY + lastChildY) / 2 - selfH / 2,
         },
         type: "mindmap",
+        style: { width: NODE_WIDTH },
       });
     }
   }
@@ -191,17 +197,14 @@ function formatNodeMarkdown(node: FlowNode): string {
     return `# ${label}`;
   }
   if (depth === 1) {
-    let line = `## ${label}`;
-    if (ts && te) {
-      const dur = formatDuration(ts, te);
-      if (dur) line += `（⏱ ${dur}）`;
-    }
-    return line;
+    const line = `## ${label}`;
+    if (!detail) return line;
+    return `${line}\n${detail}`;
   }
   if (depth === 2) {
-    let line = `### ${label}`;
-    if (ts) line += `（▶ ${ts}）`;
-    return line;
+    const line = `### ${label}`;
+    if (!detail) return line;
+    return `${line}\n${detail}`;
   }
   const bullet = important ? `- **${label}**` : `- ${label}`;
   if (!detail) return bullet;

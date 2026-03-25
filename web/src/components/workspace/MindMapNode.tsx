@@ -80,7 +80,7 @@ export function MindMapNode({ data, selected }: NodeProps<MindMapNodeData>) {
         style={{ background: cfg.border }}
       />
       <div
-        className="w-[240px] box-border rounded-lg border-2 px-3 py-2 shadow-sm transition-colors"
+        className="w-[300px] box-border rounded-lg border-2 px-3 py-2 shadow-sm transition-colors"
         style={{
           backgroundColor: cfg.bg,
           color: cfg.text,
