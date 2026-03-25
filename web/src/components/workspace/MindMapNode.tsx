@@ -64,7 +64,7 @@ export function MindMapNode({ data, selected }: NodeProps<MindMapNodeData>) {
   const depth = data.depth ?? 0;
   const cfg = DEPTH_CONFIG[Math.min(depth, 4)];
 
-  const showDetail = depth >= 2 && Boolean(data.detail?.trim());
+  const showDetail = Boolean(data.detail?.trim());
   const showTimeDepth1 = depth === 1;
   const showTimeDepth2 = depth >= 2;
 

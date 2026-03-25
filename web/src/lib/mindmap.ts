@@ -1,12 +1,5 @@
 export type EdgeType = "split" | "parallel" | "causal" | "progressive";
 
-export const EDGE_COLORS: Record<EdgeType, string> = {
-  split: "#94a3b8",
-  parallel: "#6366f1",
-  causal: "#f59e0b",
-  progressive: "#10b981",
-};
-
 export interface MindMapTreeNode {
   id: string;
   label: string;
@@ -112,12 +105,6 @@ export function treeToFlow(root: MindMapTreeNode): {
     } else {
       const startY = globalY;
       (node.children ?? []).forEach((child) => {
-        const raw = child.edgeType ?? "split";
-        const edgeKey: EdgeType =
-          raw === "parallel" || raw === "causal" || raw === "progressive"
-            ? raw
-            : "split";
-        const stroke = EDGE_COLORS[edgeKey];
         edges.push({
           id: `e${node.id}-${child.id}`,
           source: node.id,
@@ -125,7 +112,7 @@ export function treeToFlow(root: MindMapTreeNode): {
           sourceHandle: "right",
           targetHandle: "left",
           type: "smoothstep",
-          style: { stroke, strokeWidth: 1.5 },
+          style: { stroke: "#94a3b8", strokeWidth: 1.5 },
         });
         buildFlow(child, depth + 1);
       });
