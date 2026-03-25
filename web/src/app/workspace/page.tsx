@@ -19,6 +19,7 @@ import { treeToFlow } from "@/lib/mindmap";
 import { fetchTranscript, formatTimestamp } from "@/lib/transcript";
 import {
   clearAllCachedMindmaps,
+  clearAllCachedTranslations,
   getCachedMindmap,
   getCachedTranslations,
   isTranslationsComplete,
@@ -83,14 +84,34 @@ function WorkspaceClient() {
     );
   }, []);
 
+  /** 测试用：访问 `...?clearTransCache=1` 会清空字幕翻译 localStorage 并去掉该参数 */
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("clearTransCache") !== "1") return;
+    clearAllCachedTranslations();
+    sp.delete("clearTransCache");
+    const qs = sp.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`
+    );
+  }, []);
+
   const videoId = React.useMemo(() => getYouTubeVideoId(url), [url]);
   const [subtitleMode, setSubtitleMode] = React.useState<SubtitleMode>("bilingual");
   const [mode, setMode] = React.useState<WorkspaceMode>("nav");
   const [videoTitle, setVideoTitle] = React.useState<string>("加载中...");
+  const [channelTitle, setChannelTitle] = React.useState<string>("");
   const videoTitleRef = React.useRef(videoTitle);
+  const channelTitleRef = React.useRef(channelTitle);
   React.useEffect(() => {
     videoTitleRef.current = videoTitle;
   }, [videoTitle]);
+  React.useEffect(() => {
+    channelTitleRef.current = channelTitle;
+  }, [channelTitle]);
   // 字幕加载状态：初始为 loading，只有 API 返回成功/失败后才改变，保证新视频加载时显示等待提示
   const [transcriptStatus, setTranscriptStatus] =
     React.useState<TranscriptStatus>("loading");
@@ -120,8 +141,14 @@ function WorkspaceClient() {
   React.useEffect(() => {
     if (!videoId) return;
     fetchVideoInfo(videoId)
-      .then((info) => setVideoTitle(info.title))
-      .catch(() => setVideoTitle("无法获取视频信息"));
+      .then((info) => {
+        setVideoTitle(info.title);
+        setChannelTitle(info.channelTitle ?? "");
+      })
+      .catch(() => {
+        setVideoTitle("无法获取视频信息");
+        setChannelTitle("");
+      });
   }, [videoId]);
 
   React.useEffect(() => {
@@ -180,6 +207,7 @@ function WorkspaceClient() {
                   videoTitleRef.current !== "加载中..."
                     ? videoTitleRef.current
                     : undefined,
+                channelTitle: channelTitleRef.current ?? "",
               }),
             })
               .then((res) => res.json())
@@ -215,9 +243,7 @@ function WorkspaceClient() {
               for (let i = 0; i < subs.length; i++) {
                 const item = subs[i];
                 current.push(item);
-                const text = (item.en ?? "").trim();
-                const isSentenceEnd = /[.?!]$/.test(text);
-                if (current.length >= targetBatchSize && isSentenceEnd) {
+                if (current.length >= targetBatchSize) {
                   batches.push(current);
                   current = [];
                 }
@@ -226,7 +252,7 @@ function WorkspaceClient() {
               return batches;
             };
 
-            const batches = splitIntoBatches(lines, 15);
+            const batches = splitIntoBatches(lines, 20);
 
             const fetchBatchTranslations = async (
               batch: SubtitleLine[],
@@ -253,6 +279,7 @@ function WorkspaceClient() {
 
             const applyBatchTranslations = (
               batchStart: number,
+              batchLength: number,
               items: { id?: number; translated?: string }[]
             ) => {
               setTranslations((prev) => {
@@ -262,6 +289,11 @@ function WorkspaceClient() {
                     typeof item.id === "number" ? item.id : batchStart + index;
                   next[id] = item.translated ?? "";
                 });
+                // 补全本批次内未返回的 id，防止永远停在“翻译中...”
+                for (let i = 0; i < batchLength; i++) {
+                  const id = batchStart + i;
+                  if (next[id] === undefined) next[id] = "";
+                }
                 translationsRef.current = next;
                 return next;
               });
@@ -303,14 +335,22 @@ function WorkspaceClient() {
                       batch,
                       batchStart
                     );
-                    applyBatchTranslations(batchStart, batchTranslations);
+                    applyBatchTranslations(
+                      batchStart,
+                      batchLength,
+                      batchTranslations
+                    );
                   } catch {
                     try {
                       const batchTranslations = await fetchBatchTranslations(
                         batch,
                         batchStart
                       );
-                      applyBatchTranslations(batchStart, batchTranslations);
+                      applyBatchTranslations(
+                        batchStart,
+                        batchLength,
+                        batchTranslations
+                      );
                     } catch {
                       markBatchFailed(batchStart, batchLength);
                     }

@@ -319,7 +319,8 @@ function batchTargetsByTime(
 async function enrichDetails(
   apiKey: string,
   timedText: string,
-  root: ApiMindMapNode
+  root: ApiMindMapNode,
+  channelTitle: string
 ): Promise<void> {
   const targets: ApiMindMapNode[] = [];
   collectDetailTargets(root, targets);
@@ -408,6 +409,111 @@ ${JSON.stringify(targetPayload)}
   // 专属处理开头两个固定节点：字幕上下文固定取前 3000 字符
   await enrichOneBatch(introNodes, timedText.slice(0, 3000), 2000);
 
+  // 主讲人 detail 兜底：如果生成质量不足，则用 Tavily + DeepSeek 进一步补充
+  try {
+    const speakerNodes = introNodes.filter(
+      (n) => n.label.includes("主讲人 / 作者") || n.label.includes("主讲人")
+    );
+
+    const badMarkers = [
+      "未明确",
+      "未提及",
+      "不确定",
+      "未在字幕",
+      "未透露",
+      "推断",
+      "可能来自",
+      "字幕中",
+    ];
+    const needSearchNodes = speakerNodes.filter((n) => {
+      const d = (n.detail ?? "").trim();
+      if (!d) return true;
+      if (d.length < 30) return true;
+      // 包含任何不确定性表达，说明是推断而非事实
+      if (badMarkers.some((m) => d.includes(m))) return true;
+      // 如果 detail 里没有出现任何英文人名（大写字母开头的连续两个单词），说明没有找到真实姓名
+      const hasRealName = /[A-Z][a-z]+ [A-Z][a-z]+/.test(d);
+      // 如果 detail 里也没有中文人名特征（两个字以上的中文姓名通常跟着职位/机构）
+      const hasChineseName = /[\u4e00-\u9fa5]{2,4}（|[\u4e00-\u9fa5]{2,4}，|[\u4e00-\u9fa5]{2,4}是/.test(d);
+      if (!hasRealName && !hasChineseName) return true;
+      return false;
+    });
+
+    if (needSearchNodes.length > 0) {
+      const TAVILY_URL = "https://api.tavily.com/search";
+      const tavilyKey = process.env.TAVILY_API_KEY;
+      if (!tavilyKey) return;
+
+      const keywordSource = timedText.slice(0, 2000);
+      const re = /\b[A-Z][a-z]+ [A-Z][a-z]+\b/g;
+      const freq = new Map<string, number>();
+      for (const match of keywordSource.matchAll(re)) {
+        const name = match[0];
+        if (!name) continue;
+        freq.set(name, (freq.get(name) ?? 0) + 1);
+      }
+
+      const topNames = [...freq.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([name]) => name)
+        .slice(0, 2);
+
+      const videoTitleKeyword = (root.label ?? "").trim();
+      const query =
+        topNames.length > 0
+          ? `${topNames.join(" ")} ${videoTitleKeyword} background`
+          : channelTitle
+            ? `${channelTitle} background who is`
+            : `${videoTitleKeyword} presenter background`;
+
+      const tavilyRes = await fetch(TAVILY_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: tavilyKey,
+          query,
+          max_results: 2,
+          search_depth: "basic",
+        }),
+      });
+
+      const tavilyData = (await tavilyRes.json().catch(() => ({}))) as {
+        results?: Array<{
+          url?: string;
+          content?: string;
+          title?: string;
+        }>;
+      };
+
+      const searchResultsText =
+        tavilyData.results
+          ?.map(
+            (r) =>
+              `来源：${r.url ?? ""}\n${r.content ?? ""}`.trim()
+          )
+          .filter(Boolean)
+          .join("\n\n") ?? "";
+
+      if (searchResultsText.trim()) {
+        const prompt = `根据以下搜索结果，用2~3句中文介绍该人物的姓名、机构、职位和专业背景：\n${searchResultsText}`;
+        const summary = await deepseekStreamCompletion(apiKey, {
+          model: "deepseek-chat",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 300,
+        });
+
+        const finalDetail = summary.trim();
+        if (finalDetail) {
+          needSearchNodes.forEach((n) => {
+            n.detail = finalDetail;
+          });
+        }
+      }
+    }
+  } catch {
+    // Tavily/DeepSeek 失败静默跳过，不影响主流程
+  }
+
   // 其余节点按时间段分批并行处理
   const batches = batchTargetsByTime(otherNodes, 180);
   await Promise.all(
@@ -430,10 +536,13 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => null)) as {
       transcript?: TranscriptItem[];
       videoTitle?: string;
+      channelTitle?: string;
     } | null;
     const transcript = body?.transcript ?? [];
     const rawTitle =
       typeof body?.videoTitle === "string" ? body.videoTitle.trim() : "";
+    const channelTitle =
+      typeof body?.channelTitle === "string" ? body.channelTitle.trim() : "";
     if (!Array.isArray(transcript) || transcript.length === 0) {
       return NextResponse.json(
         { error: "transcript 为空或格式错误" },
@@ -478,7 +587,7 @@ export async function POST(request: NextRequest) {
     }
 
     fixNodeTimestamps(mindmap.root);
-    await enrichDetails(apiKey, timedText, mindmap.root);
+    await enrichDetails(apiKey, timedText, mindmap.root, channelTitle);
     const rootTree = normalizeToTreeNode(mindmap.root);
 
     return NextResponse.json({ mindmap: { root: rootTree } });

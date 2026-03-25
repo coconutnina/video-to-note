@@ -142,3 +142,16 @@ export function clearAllCachedMindmaps(): void {
     /* ignore */
   }
 }
+
+/** 删除当前版本前缀下所有字幕翻译缓存（workspace:*:translations:*） */
+export function clearAllCachedTranslations(): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const prefix = `workspace:${CACHE_VERSION}:translations:`;
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith(prefix)) localStorage.removeItem(k);
+    }
+  } catch {
+    /* ignore */
+  }
+}

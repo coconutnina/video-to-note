@@ -4,7 +4,7 @@ import { deepseekStreamCompletion } from "@/lib/deepseek-stream";
 
 export const maxDuration = 60;
 
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 20;
 
 interface SubtitleItem {
   id: number;
@@ -45,7 +45,28 @@ async function translateBatch(
     throw new Error("翻译请求失败");
   }
 
-  const raw = (content ?? "").replace(/```json\n?|\n?```/g, "").trim();
+  const raw = (content ?? "")
+    .replace(/```json\n?|\n?```/g, "")
+    .trim();
+
+  // 修复 JSON 字符串值内的非法字符
+  // 策略：仅清理 translated 字段的值内容，不影响其它字段
+  const fixedRaw = raw.replace(
+    /"translated"\s*:\s*"([\s\S]*?)(?<!\\)"/g,
+    (match, value: string) => {
+      const cleaned = value
+        .replace(/\\/g, "\\\\") // 先转义已有的反斜杠
+        .replace(/"/g, '\\"') // 转义引号
+        .replace(/\n/g, "\\n") // 转义换行
+        .replace(/\r/g, "\\r") // 转义回车
+        .replace(/\t/g, "\\t") // 转义制表符
+        .replace(
+          /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,
+          ""
+        ); // 删除其他控制字符
+      return `"translated": "${cleaned}"`;
+    }
+  );
   if (!raw) {
     console.warn("DeepSeek 翻译结果为空，已用空字符串补齐");
     return items.map((i) => ({ id: i.id, translated: "" }));
@@ -53,9 +74,22 @@ async function translateBatch(
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(fixedRaw);
   } catch (e) {
-    console.warn("DeepSeek 返回内容 JSON.parse 失败，已按 id 补空:", e);
+    console.warn("JSON 解析失败，尝试逐条提取:", e);
+    const fallback: { id: number; translated: string }[] = [];
+    const pattern =
+      /"id"\s*:\s*(\d+)\s*,\s*"translated"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+    for (const m of fixedRaw.matchAll(pattern)) {
+      fallback.push({ id: Number(m[1]), translated: m[2] });
+    }
+    if (fallback.length > 0) {
+      const map = new Map(fallback.map((f) => [f.id, f.translated]));
+      return items.map((i) => ({
+        id: i.id,
+        translated: map.get(i.id) ?? "",
+      }));
+    }
     return items.map((i) => ({ id: i.id, translated: "" }));
   }
 
