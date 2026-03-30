@@ -23,13 +23,6 @@
   --font-mono: var(--font-ibm-plex-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
@@ -67,6 +60,63 @@ body {
 .hp-anim-features {
   opacity: 0;
   animation: hp-fade-up 0.5s ease 0.52s forwards;
+}
+
+/* Loading page staggered fade-up */
+@keyframes lp-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.lp-anim-1 {
+  opacity: 0;
+  animation: lp-fade-up 0.5s ease 0.05s forwards;
+}
+
+.lp-anim-2 {
+  opacity: 0;
+  animation: lp-fade-up 0.5s ease 0.15s forwards;
+}
+
+.lp-anim-3 {
+  opacity: 0;
+  animation: lp-fade-up 0.5s ease 0.22s forwards;
+}
+
+.lp-anim-4 {
+  opacity: 0;
+  animation: lp-fade-up 0.5s ease 0.3s forwards;
+}
+
+.lp-anim-5 {
+  opacity: 0;
+  animation: lp-fade-up 0.5s ease 0.35s forwards;
+}
+
+@keyframes lp-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.lp-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: var(--gold);
+  animation: lp-dot-pulse 1.4s ease-in-out infinite;
 }
 
 /* 脑图导出 PNG：隐藏 Panel / Controls，避免截进界面按钮 */

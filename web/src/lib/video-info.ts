@@ -40,3 +40,5 @@ export async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
 
   return { title, channelTitle, thumbnail };
 }
+
+export const getVideoInfo = fetchVideoInfo;

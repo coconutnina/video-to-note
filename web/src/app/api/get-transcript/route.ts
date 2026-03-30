@@ -62,8 +62,8 @@ function mergeTranscriptIntoSentences(
   return merged;
 }
 
-export async function GET(request: NextRequest) {
-  const videoId = request.nextUrl.searchParams.get("videoId")?.trim();
+async function handleGetTranscript(videoIdRaw: string | undefined) {
+  const videoId = videoIdRaw?.trim();
   if (!videoId) {
     return NextResponse.json({ error: ERROR_MESSAGE }, { status: 400 });
   }
@@ -132,4 +132,15 @@ export async function GET(request: NextRequest) {
     const message = err instanceof Error ? err.message : ERROR_MESSAGE;
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+export async function GET(request: NextRequest) {
+  return handleGetTranscript(request.nextUrl.searchParams.get("videoId") ?? undefined);
+}
+
+export async function POST(request: NextRequest) {
+  const body = (await request.json().catch(() => null)) as
+    | { videoId?: string }
+    | null;
+  return handleGetTranscript(body?.videoId);
 }

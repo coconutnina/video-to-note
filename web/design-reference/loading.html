@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>video-to-note · 加载页设计稿</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Mono:wght@300;400;500&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --paper: #FBFBFB;
+  --gold: #A8882A;
+  --gold-light: rgba(168,136,42,0.10);
+  --gold-border: rgba(168,136,42,0.25);
+  --ink: #111111;
+  --muted: #555555;
+  --faint: #999999;
+  --rule: #E8E8E8;
+  --serif: 'EB Garamond', Georgia, serif;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'DM Sans', sans-serif;
+}
+
+html, body {
+  width: 100%; height: 100%;
+  background: #EEECEA;
+  font-family: var(--sans);
+  color: var(--ink);
+}
+
+.page {
+  width: 100vw;
+  height: 100vh;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Nav — identical to homepage ── */
+nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 72px;
+  height: 64px;
+  border-bottom: 1px solid var(--rule);
+  flex-shrink: 0;
+  z-index: 2;
+}
+.logo-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+.logo-text {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.nav-video-title {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--faint);
+  max-width: 400px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Main body: two columns ── */
+.body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
+}
+
+/* ── Left column ── */
+.left {
+  padding: 64px 72px 72px;
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.left-top {}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold);
+  font-weight: 400;
+  margin-bottom: 14px;
+  opacity: 0;
+  animation: fadeUp 0.5s ease 0.05s forwards;
+}
+
+.main-title {
+  font-family: var(--serif);
+  font-size: 48px;
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin-bottom: 10px;
+  white-space: nowrap;
+  opacity: 0;
+  animation: fadeUp 0.5s ease 0.15s forwards;
+}
+
+.subtitle {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--faint);
+  font-weight: 300;
+  margin-bottom: 56px;
+  opacity: 0;
+  animation: fadeUp 0.5s ease 0.22s forwards;
+}
+
+/* Step list */
+.steps {
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  animation: fadeUp 0.5s ease 0.3s forwards;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 0;
+  border-top: 1px solid var(--rule);
+}
+.step:last-child { border-bottom: 1px solid var(--rule); }
+
+.step-num {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--rule);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+.step-num.done {
+  background: var(--gold-light);
+  border-color: var(--gold-border);
+  color: var(--gold);
+}
+.step-num.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.step-label {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 300;
+  color: var(--faint);
+  flex: 1;
+}
+.step-label.done { color: var(--muted); }
+.step-label.active {
+  color: var(--ink);
+  font-weight: 400;
+}
+
+.step-status {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--gold);
+  flex-shrink: 0;
+}
+.step-status.pending { color: transparent; }
+
+/* Active step: animated ellipsis */
+.step-active-indicator {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.dot {
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: var(--gold);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes pulse {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* ── Right column ── */
+.right {
+  padding: 64px 72px 72px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+/* Big percentage */
+.pct-block {
+  opacity: 0;
+  animation: fadeUp 0.5s ease 0.2s forwards;
+}
+.pct-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 8px;
+}
+.pct-number {
+  font-family: var(--serif);
+  font-size: 108px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.pct-symbol {
+  font-size: 56px;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--gold);
+}
+
+/* Progress bar block */
+.progress-block {
+  opacity: 0;
+  animation: fadeUp 0.5s ease 0.35s forwards;
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+.progress-step-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.progress-step-num {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--gold);
+}
+
+.progress-bar {
+  width: 100%;
+  height: 2px;
+  background: var(--rule);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--gold);
+  border-radius: 1px;
+  animation: barGrow 2.4s cubic-bezier(0.4,0,0.2,1) forwards;
+  animation-delay: 0.5s;
+}
+@keyframes barGrow { to { width: 42%; } }
+
+.progress-eta {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--faint);
+  font-weight: 300;
+}
+
+/* Decorative: faint grid lines — editorial texture */
+.grid-lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image:
+    repeating-linear-gradient(0deg, #000 0px, #000 1px, transparent 1px, transparent 56px),
+    repeating-linear-gradient(90deg, #000 0px, #000 1px, transparent 1px, transparent 56px);
+}
+
+/* ── Bottom bar — identical to homepage ── */
+.bottom-bar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 46px;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 72px;
+  z-index: 2;
+  background: rgba(251,251,251,0.95);
+}
+.bar-quote {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: #888;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+.bar-quotemark {
+  color: var(--gold);
+  font-size: 18px;
+  vertical-align: -2px;
+  margin: 0 2px;
+}
+.bar-author {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: rgba(168,136,42,0.7);
+  margin-left: 10px;
+  letter-spacing: 0.06em;
+}
+.github-link {
+  position: absolute;
+  right: 72px;
+  color: var(--faint);
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.github-link:hover { color: var(--ink); }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="grid-lines"></div>
+
+  <!-- Nav -->
+  <nav>
+    <a class="logo-wrap" href="#">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="14" cy="14" r="3.5" fill="#111111"/>
+        <line x1="14" y1="10.5" x2="14" y2="5" stroke="#A8882A" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="17" y1="11.5" x2="21.5" y2="7.5" stroke="#A8882A" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="17.5" y1="14.5" x2="23" y2="14.5" stroke="#A8882A" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="17" y1="17" x2="21.5" y2="21" stroke="#C8B870" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="14" y1="17.5" x2="14" y2="23" stroke="#C8B870" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="11" y1="17" x2="6.5" y2="21" stroke="#C8B870" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="10.5" y1="14.5" x2="5" y2="14.5" stroke="#A8882A" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="11" y1="11.5" x2="6.5" y2="7.5" stroke="#A8882A" stroke-width="1.5" stroke-linecap="round"/>
+        <circle cx="14" cy="4" r="1.8" fill="#A8882A"/>
+        <circle cx="22.5" cy="6.5" r="1.8" fill="#A8882A"/>
+        <circle cx="24" cy="14.5" r="1.8" fill="#A8882A"/>
+        <circle cx="22.5" cy="22" r="1.8" fill="#C8B870"/>
+        <circle cx="14" cy="24" r="1.8" fill="#C8B870"/>
+        <circle cx="5.5" cy="22" r="1.8" fill="#C8B870"/>
+        <circle cx="4" cy="14.5" r="1.8" fill="#A8882A"/>
+        <circle cx="5.5" cy="6.5" r="1.8" fill="#A8882A"/>
+      </svg>
+      <span class="logo-text">video-to-note</span>
+    </a>
+    <div class="nav-video-title">
+      Prompt Engineering Full Course for Beginners — freeCodeCamp.org
+    </div>
+  </nav>
+
+  <!-- Body -->
+  <div class="body">
+
+    <!-- Left: status + steps -->
+    <div class="left">
+      <div class="left-top">
+        <div class="eyebrow">Processing</div>
+        <div class="main-title">Connecting the dots...</div>
+        <div class="subtitle">AI 正在理解视频内容，根据视频的时长，通常需要 15 秒至 2 分钟</div>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num done">✓</div>
+            <span class="step-label done">获取视频字幕</span>
+            <span class="step-status">完成</span>
+          </div>
+          <div class="step">
+            <div class="step-num done">✓</div>
+            <span class="step-label done">字幕预处理</span>
+            <span class="step-status">完成</span>
+          </div>
+          <div class="step">
+            <div class="step-num active">3</div>
+            <span class="step-label active">AI 生成思维导图骨架</span>
+            <div class="step-active-indicator">
+              <div class="dot"></div>
+              <div class="dot"></div>
+              <div class="dot"></div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <span class="step-label">进入学习空间，译文及导图细节将持续加载</span>
+            <span class="step-status pending">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: percentage + progress -->
+    <div class="right">
+      <div class="pct-block">
+        <div class="pct-label">整体进度</div>
+        <div class="pct-number">
+          <span id="pct-val">0</span><span class="pct-symbol">%</span>
+        </div>
+      </div>
+
+      <div class="progress-block">
+        <div class="progress-meta">
+          <span class="progress-step-label">当前步骤</span>
+          <span class="progress-step-num">步骤 3 / 4</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="prog-fill"></div>
+        </div>
+        <div class="progress-eta">预计剩余约 20 秒</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bottom bar -->
+  <div class="bottom-bar">
+    <div class="bar-quote">
+      <span class="bar-quotemark">"</span>
+      If you can't explain it simply, you don't understand it well enough.
+      <span class="bar-quotemark">"</span>
+      <span class="bar-author">— Albert Einstein</span>
+    </div>
+    <a class="github-link" href="https://github.com/coconutnina/video-to-note" target="_blank" title="View on GitHub">
+      <svg width="17" height="17" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" fill="currentColor"/>
+      </svg>
+    </a>
+  </div>
+
+</div>
+
+<script>
+  // Count up from 0 to 42
+  const el = document.getElementById('pct-val');
+  let v = 0;
+  const target = 42;
+  const interval = setInterval(() => {
+    v++;
+    el.textContent = v;
+    if (v >= target) clearInterval(interval);
+  }, 50);
+</script>
+</body>
+</html>
