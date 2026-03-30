@@ -97,11 +97,13 @@ function LoadingClient() {
   const [progress, setProgress] = React.useState(0);
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
-  const [isRunning, setIsRunning] = React.useState(false);
+  const [, setIsRunning] = React.useState(false);
   const [isTimerRunning, setIsTimerRunning] = React.useState(false);
   const [retryTick, setRetryTick] = React.useState(0);
   const hasNavigatedRef = React.useRef(false);
   const hasStartedRef = React.useRef(false);
+  const videoTitleRef = React.useRef("");
+  const isRunningRef = React.useRef(false);
 
   React.useEffect(() => {
     if (!videoId) {
@@ -114,6 +116,7 @@ function LoadingClient() {
       .then((info) => {
         if (cancelled) return;
         setVideoTitle(info.title);
+        videoTitleRef.current = info.title;
         setTitleState("success");
       })
       .catch(() => {
@@ -134,25 +137,44 @@ function LoadingClient() {
   }, [isTimerRunning]);
 
   React.useEffect(() => {
+    // videoId 为空时直接返回，不设置 hasStartedRef
+    if (!videoId) return;
+    // 已经开始过则返回
     if (hasStartedRef.current) return;
-    if (!videoId || isRunning || hasNavigatedRef.current) return;
+    // 已导航则返回
+    if (hasNavigatedRef.current) return;
+    if (isRunningRef.current) return;
     hasStartedRef.current = true;
 
     let cancelled = false;
     const run = async () => {
       try {
         setIsRunning(true);
+        isRunningRef.current = true;
         setErrorMessage(null);
         setCurrentStep(1);
         setProgress(0);
         setElapsedSeconds(0);
         setIsTimerRunning(true);
 
-        const transcriptRes = await fetch("/api/get-transcript", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ videoId }),
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        let transcriptRes: Response;
+        try {
+          transcriptRes = await fetch("/api/get-transcript", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ videoId }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+        } catch (err) {
+          clearTimeout(timeoutId);
+          if (err instanceof Error && err.name === "AbortError") {
+            throw new Error("字幕获取超时，请检查网络或稍后重试");
+          }
+          throw err;
+        }
         const transcriptData = (await transcriptRes.json().catch(() => ({}))) as {
           transcript?: TranscriptItem[];
           error?: string;
@@ -181,7 +203,7 @@ function LoadingClient() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             transcript,
-            videoTitle: videoTitle.trim() || undefined,
+            videoTitle: videoTitleRef.current.trim() || undefined,
           }),
         });
         const mindmapData = (await mindmapRes.json().catch(() => ({}))) as {
@@ -202,7 +224,7 @@ function LoadingClient() {
             JSON.stringify({
               transcript,
               mindmapData: mindmapData.mindmap,
-              videoTitle,
+              videoTitle: videoTitleRef.current,
             })
           );
         } catch {
@@ -224,7 +246,10 @@ function LoadingClient() {
         setIsTimerRunning(false);
         setErrorMessage(err instanceof Error ? err.message : "处理失败，请重试");
       } finally {
-        if (!cancelled) setIsRunning(false);
+        if (!cancelled) {
+          setIsRunning(false);
+          isRunningRef.current = false;
+        }
       }
     };
 
@@ -232,7 +257,7 @@ function LoadingClient() {
     return () => {
       cancelled = true;
     };
-  }, [videoId, canonicalUrl, videoTitle, router, isRunning, retryTick]);
+  }, [videoId, canonicalUrl, router, retryTick]);
 
   function handleRetry() {
     hasNavigatedRef.current = false;
