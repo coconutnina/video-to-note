@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>video-to-note · 首页设计稿 v3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Mono:wght@300;400;500&family=DM+Sans:opsz,wght@9..40,300;9..40,400&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* makingsoftware-inspired: near-pure white, not warm */
+  --paper: #FBFBFB;
+  --gold: #A8882A;
+  --gold-light: rgba(168,136,42,0.12);
+  --gold-hover: rgba(168,136,42,0.2);
+  --gold-border: rgba(168,136,42,0.28);
+  --ink: #111111;
+  --muted: #555555;
+  --faint: #999999;
+  --rule: #E8E8E8;
+  --rule-warm: #DDD8CE;
+
+  /* Fonts: EB Garamond mirrors arizona (high-contrast editorial serif) */
+  /* IBM Plex Mono mirrors departureMono */
+  --serif: 'EB Garamond', Georgia, serif;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'DM Sans', sans-serif;
+}
+
+html, body {
+  width: 100%; height: 100%;
+  background: #F0EEEA;
+  font-family: var(--sans);
+  color: var(--ink);
+}
+
+.page {
+  width: 100vw;
+  height: 100vh;
+  /* Subtle radial gradient: warm gold whisper at center, cool white at edges */
+  background: #FBFBFB;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Nav ── */
+nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 72px;
+  height: 64px;
+  border-bottom: 1px solid var(--rule);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+}
+
+.logo-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+.logo-mark {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.logo-text {
+  /* EB Garamond for logo — editorial feel like makingsoftware */
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.nav-links {
+  display: flex;
+  gap: 36px;
+  align-items: center;
+}
+.nav-link {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 400;
+  font-family: var(--sans);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.nav-link:hover { color: var(--ink); }
+.nav-divider { width: 1px; height: 16px; background: var(--rule); }
+.nav-cta {
+  font-size: 13px;
+  font-family: var(--sans);
+  font-weight: 400;
+  color: var(--paper);
+  background: var(--ink);
+  padding: 9px 22px;
+  border-radius: 5px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: opacity 0.15s;
+}
+.nav-cta:hover { opacity: 0.8; }
+
+/* ── Hero ── */
+.hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 72px 64px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Very subtle warm grain — makingsoftware has zero decoration,
+   we keep just a whisper of texture */
+.grain {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  opacity: 0.018;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* eyebrow: stays with its own mono/uppercase treatment — user wants this unchanged */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 12px;
+  font-weight: 400;
+  opacity: 0;
+  animation: fadeUp 0.5s ease 0.08s forwards;
+}
+
+/* Hero title: EB Garamond — matches arizona's optical elegance */
+.hero-title {
+  font-family: var(--serif);
+  font-size: 76px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  text-align: center;
+  margin-bottom: 18px;
+  opacity: 0;
+  animation: fadeUp 0.5s ease 0.2s forwards;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.title-connector {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--gold);
+  font-size: 68px;
+}
+
+/* Subtitle: DM Sans light — keep original warm style, slightly smaller */
+.hero-sub {
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.85;
+  font-weight: 300;
+  text-align: center;
+  max-width: 440px;
+  margin-bottom: 52px;
+  opacity: 0;
+  animation: fadeUp 0.5s ease 0.32s forwards;
+}
+.hero-sub strong {
+  color: var(--ink);
+  font-weight: 400;
+}
+
+/* ── CTA block: input + cards share same width ── */
+.cta-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 660px;
+}
+
+/* ── Input ── */
+.input-wrap {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 0;
+  transition: border-color 0.18s, box-shadow 0.18s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  opacity: 0;
+  animation: fadeUp 0.5s ease 0.42s forwards;
+}
+.input-wrap:focus-within {
+  border-color: rgba(168,136,42,0.5);
+  box-shadow: 0 0 0 3px rgba(168,136,42,0.1);
+}
+/* Tight gap between input and feature cards */
+.input-to-features-gap { height: 16px; }
+.input-icon {
+  padding: 0 12px 0 18px;
+  display: flex; align-items: center;
+  flex-shrink: 0;
+}
+.input-ph {
+  flex: 1;
+  padding: 14px 0;
+  font-size: 14px;
+  color: var(--faint);
+  font-family: var(--sans);
+  font-weight: 300;
+  outline: none; border: none; background: transparent;
+}
+.input-ph::placeholder { color: var(--faint); }
+.input-sep { width: 1px; height: 20px; background: var(--rule); flex-shrink: 0; margin-right: 5px; }
+.input-btn {
+  background: var(--gold);
+  color: #fff;
+  padding: 10px 24px;
+  font-size: 13px;
+  font-family: var(--sans);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  margin: 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.input-btn:hover { opacity: 0.85; }
+
+/* ── Feature cards — gold toned ── */
+.features {
+  display: flex;
+  gap: 12px;
+  opacity: 0;
+  animation: fadeUp 0.5s ease 0.52s forwards;
+}
+.feat-card {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 18px;
+  border: 1px solid var(--gold-border);
+  border-radius: 8px;
+  background: var(--gold-light);
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s, background 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.feat-card:hover {
+  border-color: var(--gold);
+  background: var(--gold-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(168,136,42,0.12);
+}
+.feat-icon {
+  width: 30px; height: 30px;
+  border-radius: 6px;
+  background: rgba(168,136,42,0.15);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+.feat-card:hover .feat-icon { background: rgba(168,136,42,0.25); }
+.feat-icon svg {
+  width: 14px; height: 14px;
+  stroke: var(--gold); fill: none;
+  stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+}
+.feat-name {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 2px;
+  letter-spacing: 0.01em;
+}
+.feat-desc {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 300;
+  white-space: nowrap;
+}
+.feat-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--gold);
+  position: absolute; top: 11px; right: 11px;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.feat-card:hover .feat-dot { opacity: 1; }
+
+/* ── Bottom bar ── */
+.bottom-bar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 46px;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 72px;
+  z-index: 2;
+  background: rgba(245,244,242,0.96);
+  backdrop-filter: blur(8px);
+}
+
+/* Quote centred, GitHub icon absolute-right */
+.bar-quote {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: #888888;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+.bar-quotemark {
+  color: var(--gold);
+  font-size: 18px;
+  vertical-align: -2px;
+  margin: 0 2px;
+}
+.bar-author {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: rgba(168,136,42,0.7);
+  margin-left: 10px;
+  letter-spacing: 0.06em;
+}
+.github-link {
+  position: absolute;
+  right: 72px;
+  color: var(--faint);
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.github-link:hover { color: var(--ink); }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Nav -->
+  <nav>
+    <a class="logo-wrap" href="#">
+      <svg class="logo-mark" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="14" cy="14" r="3.5" fill="#111111"/>
+        <line x1="14" y1="10.5" x2="14" y2="5" stroke="#A8882A" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="17" y1="11.5" x2="21.5" y2="7.5" stroke="#A8882A" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="17.5" y1="14.5" x2="23" y2="14.5" stroke="#A8882A" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="17" y1="17" x2="21.5" y2="21" stroke="#C8B870" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="14" y1="17.5" x2="14" y2="23" stroke="#C8B870" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="11" y1="17" x2="6.5" y2="21" stroke="#C8B870" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="10.5" y1="14.5" x2="5" y2="14.5" stroke="#A8882A" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="11" y1="11.5" x2="6.5" y2="7.5" stroke="#A8882A" stroke-width="1.5" stroke-linecap="round"/>
+        <circle cx="14" cy="4" r="1.8" fill="#A8882A"/>
+        <circle cx="22.5" cy="6.5" r="1.8" fill="#A8882A"/>
+        <circle cx="24" cy="14.5" r="1.8" fill="#A8882A"/>
+        <circle cx="22.5" cy="22" r="1.8" fill="#C8B870"/>
+        <circle cx="14" cy="24" r="1.8" fill="#C8B870"/>
+        <circle cx="5.5" cy="22" r="1.8" fill="#C8B870"/>
+        <circle cx="4" cy="14.5" r="1.8" fill="#A8882A"/>
+        <circle cx="5.5" cy="6.5" r="1.8" fill="#A8882A"/>
+      </svg>
+      <span class="logo-text">video-to-note</span>
+    </a>
+
+    <div class="nav-links">
+      <span class="nav-link">功能介绍</span>
+      <span class="nav-link">建议反馈</span>
+      <div class="nav-divider"></div>
+      <div class="nav-cta">开始使用 →</div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <div class="hero">
+    <div class="grain"></div>
+
+    <!-- eyebrow stays as-is, user said keep it -->
+    <div class="eyebrow">Your Learning Studio</div>
+
+    <!-- Main title in EB Garamond — mirrors arizona on makingsoftware -->
+    <div class="hero-title">
+      video <span class="title-connector">to</span> note
+    </div>
+
+    <!-- Subtitle in EB Garamond serif body -->
+    <p class="hero-sub">
+      粘贴任意 YouTube 链接，AI 自动提炼视频核心脉络<br>
+      生成交互式思维导图与双语字幕——<br>
+      让每次观看，都在大脑里留下<strong>真正的印记</strong>。
+    </p>
+
+    <div class="cta-block">
+      <div class="input-wrap">
+        <div class="input-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#BBBBBB" stroke-width="1.5" stroke-linecap="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+        </div>
+        <input class="input-ph" type="text" placeholder="粘贴 YouTube 链接…" />
+        <div class="input-sep"></div>
+        <div class="input-btn">开始解析</div>
+      </div>
+
+      <div style="height:16px;"></div>
+
+      <!-- Feature cards: gold toned -->
+      <div class="features">
+        <div class="feat-card">
+          <div class="feat-dot"></div>
+          <div class="feat-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg>
+          </div>
+          <div>
+            <div class="feat-name">交互式思维导图</div>
+            <div class="feat-desc">点击节点跳转视频时间点</div>
+          </div>
+        </div>
+
+        <div class="feat-card">
+          <div class="feat-dot"></div>
+          <div class="feat-icon">
+            <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <div>
+            <div class="feat-name">实时双语字幕</div>
+            <div class="feat-desc">原文译文同步高亮滚动</div>
+          </div>
+        </div>
+
+        <div class="feat-card">
+          <div class="feat-dot"></div>
+          <div class="feat-icon">
+            <svg viewBox="0 0 24 24"><path d="M9.663 17h4.673M12 3v1m6.364 1.636-.707.707M21 12h-1M4 12H3m3.343-5.657-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+          </div>
+          <div>
+            <div class="feat-name">AI 学习助手</div>
+            <div class="feat-desc">基于视频内容深度问答</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  <!-- Bottom bar: quote centred, GitHub icon absolute right -->
+  <div class="bottom-bar">
+    <div class="bar-quote">
+      <span class="bar-quotemark">"</span>
+      If you can't explain it simply, you don't understand it well enough.
+      <span class="bar-quotemark">"</span>
+      <span class="bar-author">— Albert Einstein</span>
+    </div>
+    <a class="github-link" href="https://github.com/coconutnina/video-to-note" target="_blank" title="View on GitHub">
+      <svg width="17" height="17" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" fill="currentColor"/>
+      </svg>
+    </a>
+  </div>
+
+</div>
+</body>
+</html>

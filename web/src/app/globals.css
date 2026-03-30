@@ -1,15 +1,26 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fbfbfb;
+  --foreground: #111111;
+  /* Homepage design tokens (design-reference/homepage.html) */
+  --paper: #fbfbfb;
+  --gold: #a8882a;
+  --gold-light: rgba(168, 136, 42, 0.12);
+  --gold-hover: rgba(168, 136, 42, 0.2);
+  --gold-border: rgba(168, 136, 42, 0.28);
+  --ink: #111111;
+  --muted: #555555;
+  --faint: #999999;
+  --rule: #e8e8e8;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-dm-sans);
+  --font-serif: var(--font-eb-garamond);
+  --font-mono: var(--font-ibm-plex-mono);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,7 +33,40 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Homepage: staggered fade-up (matches homepage.html @keyframes fadeUp) */
+@keyframes hp-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hp-anim-eyebrow {
+  opacity: 0;
+  animation: hp-fade-up 0.5s ease 0.08s forwards;
+}
+.hp-anim-title {
+  opacity: 0;
+  animation: hp-fade-up 0.5s ease 0.2s forwards;
+}
+.hp-anim-sub {
+  opacity: 0;
+  animation: hp-fade-up 0.5s ease 0.32s forwards;
+}
+.hp-anim-input {
+  opacity: 0;
+  animation: hp-fade-up 0.5s ease 0.42s forwards;
+}
+.hp-anim-features {
+  opacity: 0;
+  animation: hp-fade-up 0.5s ease 0.52s forwards;
 }
 
 /* 脑图导出 PNG：隐藏 Panel / Controls，避免截进界面按钮 */
