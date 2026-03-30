@@ -14,7 +14,7 @@ import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/workspace/VideoPlayer";
-import type { FlowEdge, FlowNode, MindMapTreeNode } from "@/lib/mindmap";
+import type { FlowEdge, FlowNode } from "@/lib/mindmap";
 import { treeToFlow } from "@/lib/mindmap";
 import { fetchTranscript, formatTimestamp } from "@/lib/transcript";
 import {
@@ -38,7 +38,6 @@ type TranscriptSegment = {
 
 type LoadingBootstrapPayload = {
   transcript?: TranscriptSegment[];
-  mindmapData?: { root?: MindMapTreeNode };
   videoTitle?: string;
 };
 
@@ -197,7 +196,7 @@ function WorkspaceClient() {
       setVideoTitle(bootstrap.videoTitle.trim());
     }
 
-    const applyTranscriptAndContinue = (segments: TranscriptSegment[], bootstrapRoot?: MindMapTreeNode) => {
+    const applyTranscriptAndContinue = (segments: TranscriptSegment[]) => {
       const merged = mergeSegments(segments);
       const lines: SubtitleLine[] = merged.map((g) => ({
         timestamp: formatTimestamp(g.start),
@@ -209,16 +208,11 @@ function WorkspaceClient() {
       setTranscriptError(null);
       setTranscriptStatus("success");
 
-      // 异步生成脑图，不阻塞字幕显示（优先 localStorage，再看 loading bootstrap）
+      // 异步生成脑图，不阻塞字幕显示（优先 localStorage）
       const cachedMind = getCachedMindmap(videoId);
       if (cachedMind) {
         setMindmapNodes(cachedMind.nodes);
         setMindmapEdges(cachedMind.edges);
-      } else if (bootstrapRoot) {
-        const { nodes, edges } = treeToFlow(bootstrapRoot);
-        setMindmapNodes(nodes);
-        setMindmapEdges(edges);
-        setCachedMindmap(videoId, { nodes, edges });
       } else {
         setMindmapLoading(true);
         fetch("/api/generate-mindmap", {
@@ -387,7 +381,7 @@ function WorkspaceClient() {
     };
 
     if (Array.isArray(bootstrap?.transcript) && bootstrap.transcript.length > 0) {
-      applyTranscriptAndContinue(bootstrap.transcript, bootstrap.mindmapData?.root);
+      applyTranscriptAndContinue(bootstrap.transcript);
       return;
     }
 

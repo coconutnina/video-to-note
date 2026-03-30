@@ -97,13 +97,14 @@ function LoadingClient() {
   const [progress, setProgress] = React.useState(0);
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
-  const [, setIsRunning] = React.useState(false);
   const [isTimerRunning, setIsTimerRunning] = React.useState(false);
   const [retryTick, setRetryTick] = React.useState(0);
   const hasNavigatedRef = React.useRef(false);
-  const hasStartedRef = React.useRef(false);
   const videoTitleRef = React.useRef("");
-  const isRunningRef = React.useRef(false);
+  const routerRef = React.useRef(router);
+  routerRef.current = router;
+  const canonicalUrlRef = React.useRef(canonicalUrl);
+  canonicalUrlRef.current = canonicalUrl;
 
   React.useEffect(() => {
     if (!videoId) {
@@ -137,56 +138,58 @@ function LoadingClient() {
   }, [isTimerRunning]);
 
   React.useEffect(() => {
-    // videoId 为空时直接返回，不设置 hasStartedRef
     if (!videoId) return;
-    // 已经开始过则返回
-    if (hasStartedRef.current) return;
-    // 已导航则返回
-    if (hasNavigatedRef.current) return;
-    if (isRunningRef.current) return;
-    hasStartedRef.current = true;
+    const controller = new AbortController();
+    const signal = controller.signal;
 
-    let cancelled = false;
     const run = async () => {
       try {
-        setIsRunning(true);
-        isRunningRef.current = true;
         setErrorMessage(null);
         setCurrentStep(1);
         setProgress(0);
         setElapsedSeconds(0);
         setIsTimerRunning(true);
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000);
-        let transcriptRes: Response;
-        try {
-          transcriptRes = await fetch("/api/get-transcript", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ videoId }),
-            signal: controller.signal,
-          });
-          clearTimeout(timeoutId);
-        } catch (err) {
-          clearTimeout(timeoutId);
-          if (err instanceof Error && err.name === "AbortError") {
-            throw new Error("字幕获取超时，请检查网络或稍后重试");
+        let transcriptData: { transcript?: TranscriptItem[]; error?: string } = {};
+        let lastError = "";
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (signal.aborted) return;
+          try {
+            const res = await fetch("/api/get-transcript", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ videoId }),
+              signal,
+            });
+            transcriptData = (await res.json().catch(() => ({}))) as {
+              transcript?: TranscriptItem[];
+              error?: string;
+            };
+            if (
+              res.ok &&
+              Array.isArray(transcriptData.transcript) &&
+              transcriptData.transcript.length > 0
+            ) {
+              break;
+            }
+            lastError = transcriptData.error || "字幕获取失败";
+          } catch (err) {
+            if (signal.aborted) return;
+            lastError = err instanceof Error ? err.message : "字幕获取失败";
           }
-          throw err;
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
         }
-        const transcriptData = (await transcriptRes.json().catch(() => ({}))) as {
-          transcript?: TranscriptItem[];
-          error?: string;
-        };
-        if (!transcriptRes.ok || transcriptData.error || !Array.isArray(transcriptData.transcript)) {
-          throw new Error(transcriptData.error || "字幕获取失败");
+
+        if (
+          !Array.isArray(transcriptData.transcript) ||
+          transcriptData.transcript.length === 0
+        ) {
+          throw new Error(lastError || "字幕获取失败");
         }
         const transcript = transcriptData.transcript;
-        if (transcript.length === 0) {
-          throw new Error("未获取到字幕内容");
-        }
-        if (cancelled) return;
+        if (signal.aborted) return;
         setProgress(25);
 
         setCurrentStep(2);
@@ -194,7 +197,7 @@ function LoadingClient() {
         if (preprocessed.length === 0) {
           throw new Error("字幕预处理失败");
         }
-        if (cancelled) return;
+        if (signal.aborted) return;
         setProgress(40);
 
         setCurrentStep(3);
@@ -205,7 +208,10 @@ function LoadingClient() {
             transcript,
             videoTitle: videoTitleRef.current.trim() || undefined,
           }),
+          signal,
         });
+        if (signal.aborted) return;
+
         const mindmapData = (await mindmapRes.json().catch(() => ({}))) as {
           mindmap?: { root?: MindMapTreeNode };
           error?: string;
@@ -213,7 +219,7 @@ function LoadingClient() {
         if (!mindmapRes.ok || mindmapData.error || !mindmapData.mindmap?.root) {
           throw new Error(mindmapData.error || "思维导图生成失败");
         }
-        if (cancelled) return;
+        if (signal.aborted) return;
         setProgress(90);
 
         const flow = treeToFlow(mindmapData.mindmap.root);
@@ -223,7 +229,6 @@ function LoadingClient() {
             `workspace:loading-bootstrap:${videoId}`,
             JSON.stringify({
               transcript,
-              mindmapData: mindmapData.mindmap,
               videoTitle: videoTitleRef.current,
             })
           );
@@ -231,37 +236,46 @@ function LoadingClient() {
           // ignore localStorage quota/private mode
         }
 
+        // 存完 bootstrap 后，后台提前触发前 20 条翻译，让工作区打开时已有部分缓存
+        if (transcript.length > 0) {
+          const firstBatch = transcript.slice(0, 20).map((seg, i) => ({
+            id: i,
+            text: seg.text,
+          }));
+          void fetch("/api/translate-subtitles", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ subtitles: firstBatch }),
+          }).catch(() => {
+            // 静默失败
+          });
+        }
+
         setCurrentStep(4);
         setProgress(100);
         setIsTimerRunning(false);
 
         await new Promise((resolve) => setTimeout(resolve, 800));
-        if (cancelled || hasNavigatedRef.current) return;
+        if (signal.aborted || hasNavigatedRef.current) return;
         hasNavigatedRef.current = true;
-        router.push(
-          `/workspace?videoId=${encodeURIComponent(videoId)}&url=${encodeURIComponent(canonicalUrl)}`
+        routerRef.current.push(
+          `/workspace?videoId=${encodeURIComponent(videoId)}&url=${encodeURIComponent(canonicalUrlRef.current)}`
         );
       } catch (err) {
-        if (cancelled) return;
+        if (signal.aborted) return;
         setIsTimerRunning(false);
         setErrorMessage(err instanceof Error ? err.message : "处理失败，请重试");
-      } finally {
-        if (!cancelled) {
-          setIsRunning(false);
-          isRunningRef.current = false;
-        }
       }
     };
 
     void run();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [videoId, canonicalUrl, router, retryTick]);
+  }, [videoId, retryTick]);
 
   function handleRetry() {
     hasNavigatedRef.current = false;
-    hasStartedRef.current = false;
     setCurrentStep(0);
     setProgress(0);
     setElapsedSeconds(0);
