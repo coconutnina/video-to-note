@@ -5,7 +5,7 @@ import * as React from "react";
 
 import { getVideoInfo } from "@/lib/video-info";
 import { getYouTubeVideoId } from "@/lib/youtube";
-import { setCachedMindmap } from "@/lib/workspace-cache";
+import { getCachedMindmap, setCachedMindmap } from "@/lib/workspace-cache";
 import { treeToFlow, type MindMapTreeNode } from "@/lib/mindmap";
 
 function LogoMark() {
@@ -201,29 +201,32 @@ function LoadingClient() {
         setProgress(40);
 
         setCurrentStep(3);
-        const mindmapRes = await fetch("/api/generate-mindmap", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            transcript,
-            videoTitle: videoTitleRef.current.trim() || undefined,
-          }),
-          signal,
-        });
-        if (signal.aborted) return;
+        const cachedMind = getCachedMindmap(videoId);
+        if (!cachedMind) {
+          const mindmapRes = await fetch("/api/generate-mindmap", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              transcript,
+              videoTitle: videoTitleRef.current.trim() || undefined,
+            }),
+            signal,
+          });
+          if (signal.aborted) return;
 
-        const mindmapData = (await mindmapRes.json().catch(() => ({}))) as {
-          mindmap?: { root?: MindMapTreeNode };
-          error?: string;
-        };
-        if (!mindmapRes.ok || mindmapData.error || !mindmapData.mindmap?.root) {
-          throw new Error(mindmapData.error || "思维导图生成失败");
+          const mindmapData = (await mindmapRes.json().catch(() => ({}))) as {
+            mindmap?: { root?: MindMapTreeNode };
+            error?: string;
+          };
+          if (!mindmapRes.ok || mindmapData.error || !mindmapData.mindmap?.root) {
+            throw new Error(mindmapData.error || "思维导图生成失败");
+          }
+          if (signal.aborted) return;
+
+          const flow = treeToFlow(mindmapData.mindmap.root);
+          setCachedMindmap(videoId, flow);
         }
-        if (signal.aborted) return;
         setProgress(90);
-
-        const flow = treeToFlow(mindmapData.mindmap.root);
-        setCachedMindmap(videoId, flow);
         try {
           localStorage.setItem(
             `workspace:loading-bootstrap:${videoId}`,

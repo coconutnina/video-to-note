@@ -243,14 +243,28 @@ function WorkspaceClient() {
       // 触发中文翻译（不会阻塞英文字幕显示）；分批并行，尽快返回首批结果
       const cachedTranslations = getCachedTranslations(videoId);
       const mergedLineCount = lines.length;
-      const translationsCacheComplete =
-        cachedTranslations &&
-        isTranslationsComplete(cachedTranslations, mergedLineCount);
 
-      if (translationsCacheComplete && cachedTranslations) {
+      // 只要有缓存就先展示（即使不完整），再只翻译缺失行
+      if (cachedTranslations) {
         translationsRef.current = { ...cachedTranslations };
         setTranslations({ ...cachedTranslations });
-      } else if (mergedLineCount > 0) {
+      }
+
+      if (mergedLineCount > 0) {
+        const missingIndices: number[] = [];
+        for (let i = 0; i < mergedLineCount; i++) {
+          if (translationsRef.current[i] === undefined) {
+            missingIndices.push(i);
+          }
+        }
+
+        // 缓存已完整覆盖，跳过翻译 API
+        if (missingIndices.length === 0) {
+          return;
+        }
+
+        const linesToTranslate = missingIndices.map((i) => lines[i]);
+
         const splitIntoBatches = (
           subs: SubtitleLine[],
           targetBatchSize = 20
@@ -269,7 +283,7 @@ function WorkspaceClient() {
           return batches;
         };
 
-        const batches = splitIntoBatches(lines, 20);
+        const batches = splitIntoBatches(linesToTranslate, 20);
 
         const fetchBatchTranslations = async (
           batch: SubtitleLine[],
@@ -280,7 +294,7 @@ function WorkspaceClient() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               subtitles: batch.map((line, localIdx) => ({
-                id: batchStart + localIdx,
+                id: missingIndices[batchStart + localIdx],
                 text: line.en,
               })),
             }),
@@ -312,6 +326,7 @@ function WorkspaceClient() {
               if (next[id] === undefined) next[id] = "";
             }
             translationsRef.current = next;
+            setCachedTranslations(videoId, translationsRef.current);
             return next;
           });
         };
