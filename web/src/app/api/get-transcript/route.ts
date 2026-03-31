@@ -80,18 +80,28 @@ async function fetchTranscriptFromInnertube(videoId: string): Promise<Transcript
   const playerData = (await playerResponse.json()) as {
     captions?: {
       playerCaptionsTracklistRenderer?: {
-        captionTracks?: Array<{ languageCode?: string; baseUrl?: string }>;
+        captionTracks?: Array<{
+          languageCode?: string;
+          kind?: string;
+          baseUrl?: string;
+        }>;
       };
     };
   };
 
   const captionTracks =
     playerData.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+  if (captionTracks.length === 0) {
+    console.log("youtube captions empty:", playerData.captions);
+  }
+
   const trackByPriority =
     captionTracks.find((track) => track.languageCode === "en") ??
     captionTracks.find((track) =>
-      (track.languageCode ?? "").toLowerCase().includes("en")
-    );
+      (track.languageCode ?? "").toLowerCase().startsWith("en")
+    ) ??
+    captionTracks.find((track) => track.kind === "asr") ??
+    captionTracks[0];
 
   if (!trackByPriority?.baseUrl) {
     return [];
