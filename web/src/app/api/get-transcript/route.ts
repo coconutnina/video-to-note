@@ -1,9 +1,110 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchTranscript } from "youtube-transcript-plus";
 import { transcriptCache } from "@/lib/api-cache";
 
 const ERROR_MESSAGE = "无法获取字幕";
-const TRANSCRIPT_LANG_FALLBACKS = ["en", "en-US", "en-GB"] as const;
+const ANDROID_CLIENT = {
+  clientName: "ANDROID",
+  clientVersion: "20.10.38",
+} as const;
+
+type TranscriptItem = { text: string; start: number; duration: number };
+
+function extractInnertubeApiKey(html: string) {
+  const match = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/);
+  return match?.[1] ?? null;
+}
+
+function decodeHtmlEntities(text: string) {
+  return text
+    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCharCode(Number(dec)))
+    .replace(
+      /&#x([0-9a-fA-F]+);/g,
+      (_, hex: string) => String.fromCharCode(parseInt(hex, 16))
+    )
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'");
+}
+
+function parseTranscriptXml(xml: string): TranscriptItem[] {
+  const items: TranscriptItem[] = [];
+  const textTagRegex = /<text\b([^>]*)>([\s\S]*?)<\/text>/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = textTagRegex.exec(xml)) !== null) {
+    const attrs = match[1] ?? "";
+    const rawText = match[2] ?? "";
+    const startMatch = attrs.match(/\bstart="([^"]+)"/);
+    const durationMatch = attrs.match(/\bdur="([^"]+)"/);
+    const start = Number(startMatch?.[1] ?? 0);
+    const duration = Number(durationMatch?.[1] ?? 0);
+
+    items.push({
+      text: decodeHtmlEntities(rawText).trim(),
+      start: Number.isFinite(start) ? start : 0,
+      duration: Number.isFinite(duration) ? duration : 0,
+    });
+  }
+
+  return items;
+}
+
+async function fetchTranscriptFromInnertube(videoId: string): Promise<TranscriptItem[]> {
+  const watchResponse = await fetch(`https://www.youtube.com/watch?v=${videoId}`);
+  if (!watchResponse.ok) {
+    throw new Error(`watch_page_error_${watchResponse.status}`);
+  }
+  const watchHtml = await watchResponse.text();
+  const apiKey = extractInnertubeApiKey(watchHtml);
+  if (!apiKey) {
+    throw new Error("innertube_api_key_not_found");
+  }
+
+  const playerResponse = await fetch(
+    `https://www.youtube.com/youtubei/v1/player?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        videoId,
+        context: { client: ANDROID_CLIENT },
+      }),
+    }
+  );
+  if (!playerResponse.ok) {
+    throw new Error(`player_api_error_${playerResponse.status}`);
+  }
+  const playerData = (await playerResponse.json()) as {
+    captions?: {
+      playerCaptionsTracklistRenderer?: {
+        captionTracks?: Array<{ languageCode?: string; baseUrl?: string }>;
+      };
+    };
+  };
+
+  const captionTracks =
+    playerData.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+  const trackByPriority =
+    captionTracks.find((track) => track.languageCode === "en") ??
+    captionTracks.find((track) =>
+      (track.languageCode ?? "").toLowerCase().includes("en")
+    );
+
+  if (!trackByPriority?.baseUrl) {
+    return [];
+  }
+
+  const transcriptResponse = await fetch(trackByPriority.baseUrl);
+  if (!transcriptResponse.ok) {
+    throw new Error(`transcript_xml_error_${transcriptResponse.status}`);
+  }
+  const transcriptXml = await transcriptResponse.text();
+
+  return parseTranscriptXml(transcriptXml);
+}
 
 function mergeTranscriptIntoSentences(
   transcript: { text: string; start: number; duration: number }[]
@@ -50,34 +151,18 @@ async function handleGetTranscript(videoIdRaw: string | undefined) {
   }
 
   try {
-    let content: Awaited<ReturnType<typeof fetchTranscript>> | null = null;
-    let lastError: unknown;
-
-    for (const lang of TRANSCRIPT_LANG_FALLBACKS) {
-      try {
-        content = await fetchTranscript(videoId, { lang });
-        break;
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    if (!content) {
-      throw lastError ?? new Error(ERROR_MESSAGE);
-    }
+    const content = await fetchTranscriptFromInnertube(videoId);
 
     if (!Array.isArray(content) || content.length === 0) {
       // 明确返回空数组，才是真的没有字幕
       return NextResponse.json({ error: "no_subtitle" }, { status: 200 });
     }
 
-    const transcript = content.map(
-      (item: { text?: string; offset?: number; duration?: number }) => ({
-        text: typeof item.text === "string" ? item.text : "",
-        start: typeof item.offset === "number" ? item.offset : 0,
-        duration: typeof item.duration === "number" ? item.duration : 0,
-      })
-    );
+    const transcript = content.map((item: TranscriptItem) => ({
+      text: typeof item.text === "string" ? item.text : "",
+      start: typeof item.start === "number" ? item.start : 0,
+      duration: typeof item.duration === "number" ? item.duration : 0,
+    }));
 
     const mergedTranscript = mergeTranscriptIntoSentences(
       transcript as { text: string; start: number; duration: number }[]
