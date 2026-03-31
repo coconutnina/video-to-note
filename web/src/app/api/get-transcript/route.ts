@@ -2,118 +2,39 @@ import { NextRequest, NextResponse } from "next/server";
 import { transcriptCache } from "@/lib/api-cache";
 
 const ERROR_MESSAGE = "无法获取字幕";
-const ANDROID_CLIENT = {
-  clientName: "ANDROID",
-  clientVersion: "20.10.38",
-} as const;
 
 type TranscriptItem = { text: string; start: number; duration: number };
 
-function extractInnertubeApiKey(html: string) {
-  const match = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/);
-  return match?.[1] ?? null;
-}
-
-function decodeHtmlEntities(text: string) {
-  return text
-    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCharCode(Number(dec)))
-    .replace(
-      /&#x([0-9a-fA-F]+);/g,
-      (_, hex: string) => String.fromCharCode(parseInt(hex, 16))
-    )
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'");
-}
-
-function parseTranscriptXml(xml: string): TranscriptItem[] {
-  const items: TranscriptItem[] = [];
-  const textTagRegex = /<text\b([^>]*)>([\s\S]*?)<\/text>/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = textTagRegex.exec(xml)) !== null) {
-    const attrs = match[1] ?? "";
-    const rawText = match[2] ?? "";
-    const startMatch = attrs.match(/\bstart="([^"]+)"/);
-    const durationMatch = attrs.match(/\bdur="([^"]+)"/);
-    const start = Number(startMatch?.[1] ?? 0);
-    const duration = Number(durationMatch?.[1] ?? 0);
-
-    items.push({
-      text: decodeHtmlEntities(rawText).trim(),
-      start: Number.isFinite(start) ? start : 0,
-      duration: Number.isFinite(duration) ? duration : 0,
-    });
-  }
-
-  return items;
-}
-
-async function fetchTranscriptFromInnertube(videoId: string): Promise<TranscriptItem[]> {
-  const watchResponse = await fetch(`https://www.youtube.com/watch?v=${videoId}`);
-  if (!watchResponse.ok) {
-    throw new Error(`watch_page_error_${watchResponse.status}`);
-  }
-  const watchHtml = await watchResponse.text();
-  const apiKey = extractInnertubeApiKey(watchHtml);
+async function fetchTranscriptFromApi(videoId: string): Promise<TranscriptItem[]> {
+  const apiKey = process.env.TRANSCRIPT_API_KEY;
   if (!apiKey) {
-    throw new Error("innertube_api_key_not_found");
+    throw new Error("transcript_api_key_missing");
   }
 
-  const playerResponse = await fetch(
-    `https://www.youtube.com/youtubei/v1/player?key=${apiKey}`,
+  const response = await fetch(
+    `https://transcriptapi.com/api/v2/youtube/transcript?video_url=${encodeURIComponent(videoId)}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        videoId,
-        context: { client: ANDROID_CLIENT },
-      }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
     }
   );
-  if (!playerResponse.ok) {
-    throw new Error(`player_api_error_${playerResponse.status}`);
+
+  if (!response.ok) {
+    throw new Error(`transcript_api_error_${response.status}`);
   }
-  const playerData = (await playerResponse.json()) as {
-    captions?: {
-      playerCaptionsTracklistRenderer?: {
-        captionTracks?: Array<{
-          languageCode?: string;
-          kind?: string;
-          baseUrl?: string;
-        }>;
-      };
-    };
+
+  const data = (await response.json()) as {
+    transcript?: Array<{ text?: string; start?: number; duration?: number }>;
   };
 
-  const captionTracks =
-    playerData.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
-  if (captionTracks.length === 0) {
-    console.log("youtube captions empty:", playerData.captions);
-  }
-
-  const trackByPriority =
-    captionTracks.find((track) => track.languageCode === "en") ??
-    captionTracks.find((track) =>
-      (track.languageCode ?? "").toLowerCase().startsWith("en")
-    ) ??
-    captionTracks.find((track) => track.kind === "asr") ??
-    captionTracks[0];
-
-  if (!trackByPriority?.baseUrl) {
-    return [];
-  }
-
-  const transcriptResponse = await fetch(trackByPriority.baseUrl);
-  if (!transcriptResponse.ok) {
-    throw new Error(`transcript_xml_error_${transcriptResponse.status}`);
-  }
-  const transcriptXml = await transcriptResponse.text();
-
-  return parseTranscriptXml(transcriptXml);
+  return Array.isArray(data.transcript)
+    ? data.transcript.map((item) => ({
+        text: typeof item.text === "string" ? item.text : "",
+        start: typeof item.start === "number" ? item.start : 0,
+        duration: typeof item.duration === "number" ? item.duration : 0,
+      }))
+    : [];
 }
 
 function mergeTranscriptIntoSentences(
@@ -161,7 +82,7 @@ async function handleGetTranscript(videoIdRaw: string | undefined) {
   }
 
   try {
-    const content = await fetchTranscriptFromInnertube(videoId);
+    const content = await fetchTranscriptFromApi(videoId);
 
     if (!Array.isArray(content) || content.length === 0) {
       // 明确返回空数组，才是真的没有字幕
