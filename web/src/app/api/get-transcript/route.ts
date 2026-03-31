@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { YoutubeTranscript } from "youtube-transcript";
+import { fetchTranscript } from "youtube-transcript-plus";
 import { transcriptCache } from "@/lib/api-cache";
 
 const ERROR_MESSAGE = "无法获取字幕";
@@ -50,13 +50,12 @@ async function handleGetTranscript(videoIdRaw: string | undefined) {
   }
 
   try {
-    let content: Awaited<ReturnType<typeof YoutubeTranscript.fetchTranscript>> | null =
-      null;
+    let content: Awaited<ReturnType<typeof fetchTranscript>> | null = null;
     let lastError: unknown;
 
     for (const lang of TRANSCRIPT_LANG_FALLBACKS) {
       try {
-        content = await YoutubeTranscript.fetchTranscript(videoId, { lang });
+        content = await fetchTranscript(videoId, { lang });
         break;
       } catch (error) {
         lastError = error;
@@ -75,8 +74,8 @@ async function handleGetTranscript(videoIdRaw: string | undefined) {
     const transcript = content.map(
       (item: { text?: string; offset?: number; duration?: number }) => ({
         text: typeof item.text === "string" ? item.text : "",
-        start: typeof item.offset === "number" ? item.offset / 1000 : 0,
-        duration: typeof item.duration === "number" ? item.duration / 1000 : 0,
+        start: typeof item.offset === "number" ? item.offset : 0,
+        duration: typeof item.duration === "number" ? item.duration : 0,
       })
     );
 
