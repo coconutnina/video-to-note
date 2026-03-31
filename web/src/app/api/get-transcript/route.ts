@@ -3,6 +3,7 @@ import { YoutubeTranscript } from "youtube-transcript";
 import { transcriptCache } from "@/lib/api-cache";
 
 const ERROR_MESSAGE = "无法获取字幕";
+const TRANSCRIPT_LANG_FALLBACKS = ["en", "en-US", "en-GB"] as const;
 
 function mergeTranscriptIntoSentences(
   transcript: { text: string; start: number; duration: number }[]
@@ -49,7 +50,23 @@ async function handleGetTranscript(videoIdRaw: string | undefined) {
   }
 
   try {
-    const content = await YoutubeTranscript.fetchTranscript(videoId);
+    let content: Awaited<ReturnType<typeof YoutubeTranscript.fetchTranscript>> | null =
+      null;
+    let lastError: unknown;
+
+    for (const lang of TRANSCRIPT_LANG_FALLBACKS) {
+      try {
+        content = await YoutubeTranscript.fetchTranscript(videoId, { lang });
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!content) {
+      throw lastError ?? new Error(ERROR_MESSAGE);
+    }
+
     if (!Array.isArray(content) || content.length === 0) {
       // 明确返回空数组，才是真的没有字幕
       return NextResponse.json({ error: "no_subtitle" }, { status: 200 });
