@@ -158,6 +158,7 @@ function WorkspaceClient() {
   const downloadRef = React.useRef<HTMLDivElement>(null);
   const mindmapDownloadImageRef = React.useRef<(() => void) | null>(null);
   const mindmapDownloadMarkdownRef = React.useRef<(() => void) | null>(null);
+  const backfillFiredRef = React.useRef<Set<string>>(new Set());
   const handleDownloadImage = React.useCallback(() => {
     if (mindmapDownloadImageRef.current) {
       mindmapDownloadImageRef.current();
@@ -179,6 +180,9 @@ function WorkspaceClient() {
       .then((info) => {
         setVideoTitle(info.title);
         setChannelTitle(info.channelTitle ?? "");
+        const metadataKey = `${videoId}:metadata`;
+        if (backfillFiredRef.current.has(metadataKey)) return;
+        backfillFiredRef.current.add(metadataKey);
         fetch("/api/cache/backfill", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -259,15 +263,19 @@ function WorkspaceClient() {
       if (cachedMind) {
         setMindmapNodes(cachedMind.nodes);
         setMindmapEdges(cachedMind.edges);
-        fetch("/api/cache/backfill", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "mindmap",
-            videoId,
-            data: cachedMind,
-          }),
-        }).catch(() => {});
+        const mindmapKey = `${videoId}:mindmap`;
+        if (!backfillFiredRef.current.has(mindmapKey)) {
+          backfillFiredRef.current.add(mindmapKey);
+          fetch("/api/cache/backfill", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: "mindmap",
+              videoId,
+              data: cachedMind,
+            }),
+          }).catch(() => {});
+        }
       } else {
         setMindmapLoading(true);
         fetch("/api/generate-mindmap", {
@@ -303,15 +311,19 @@ function WorkspaceClient() {
       if (cachedTranslations) {
         translationsRef.current = { ...cachedTranslations };
         setTranslations({ ...cachedTranslations });
-        fetch("/api/cache/backfill", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "translations",
-            videoId,
-            data: cachedTranslations,
-          }),
-        }).catch(() => {});
+        const translationsKey = `${videoId}:translations`;
+        if (!backfillFiredRef.current.has(translationsKey)) {
+          backfillFiredRef.current.add(translationsKey);
+          fetch("/api/cache/backfill", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: "translations",
+              videoId,
+              data: cachedTranslations,
+            }),
+          }).catch(() => {});
+        }
       }
 
       if (mergedLineCount > 0) {
@@ -455,6 +467,26 @@ function WorkspaceClient() {
           });
           await Promise.all(workers);
           setCachedTranslations(videoId, { ...translationsRef.current });
+          const translationsRecord: Record<number, string> = {};
+          Object.entries(translationsRef.current).forEach(([id, translated]) => {
+            const numericId = Number(id);
+            if (Number.isFinite(numericId)) {
+              translationsRecord[numericId] = translated;
+            }
+          });
+          const translationsKey = `${videoId}:translations`;
+          if (!backfillFiredRef.current.has(translationsKey)) {
+            backfillFiredRef.current.add(translationsKey);
+            fetch("/api/cache/backfill", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                type: "translations",
+                videoId,
+                data: translationsRecord,
+              }),
+            }).catch(() => {});
+          }
         })();
       }
     };

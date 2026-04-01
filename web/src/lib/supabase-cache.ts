@@ -69,7 +69,7 @@ export async function setTranslationCache(
 ): Promise<void> {
   try {
     const supabase = createServiceRoleClient();
-    await supabase.from("video_translations").upsert(
+    const { error } = await supabase.from("video_translations").upsert(
       {
         video_id: videoId,
         translations,
@@ -77,6 +77,7 @@ export async function setTranslationCache(
       },
       { onConflict: "video_id" }
     );
+    if (error) console.warn("supabase translation cache write failed", error);
   } catch (error) {
     console.warn("supabase translation cache write failed", error);
   }
