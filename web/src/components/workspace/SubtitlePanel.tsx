@@ -142,20 +142,26 @@ export function SubtitlePanel({
       aria-label="字幕面板"
     >
       {!hideHeader && (
-        <header className="flex shrink-0 items-center justify-between gap-2 border-b bg-background px-3 py-2">
-          <h3 className="text-sm font-medium">双语字幕</h3>
+        <header className="flex h-[38px] shrink-0 items-center justify-between border-b border-[rgba(0,0,0,0.06)] bg-[#FBFBFB] px-[14px]">
+          <h3
+            className="text-[10px] uppercase tracking-[0.14em] text-[#777777]"
+            style={{ fontFamily: '"IBM Plex Mono", monospace' }}
+          >
+            双语字幕
+          </h3>
           {!hideModeToggle && (
-            <div className="flex gap-0.5">
+            <div className="flex overflow-hidden rounded-[5px] border border-[#E4E4E4]">
               {(["en", "zh", "bilingual"] as const).map((m) => (
                 <button
                   key={m}
                   type="button"
                   onClick={() => onModeChange?.(m)}
                   className={cn(
-                    "rounded px-2 py-1 text-xs font-medium transition-colors",
+                    "px-[10px] py-[3px] text-[11.5px] transition-colors",
+                    m !== "bilingual" && "border-r border-[#E4E4E4]",
                     mode === m
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      ? "bg-[#111111] text-white"
+                      : "bg-transparent text-[#777777] hover:text-[#111111]"
                   )}
                 >
                   {MODE_LABELS[m]}
@@ -167,7 +173,8 @@ export function SubtitlePanel({
       )}
       <div
         onScroll={handleListScroll}
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+        className="subtitle-scroll flex min-h-0 flex-1 flex-col overflow-y-auto"
+        style={{ scrollbarWidth: "thin" }}
       >
         {isLoading && (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-8 text-center">
@@ -224,38 +231,54 @@ export function SubtitlePanel({
                   }}
                   aria-current={index === activeIndex ? "true" : undefined}
                   className={cn(
-                    "w-full cursor-pointer px-3 py-2 text-left transition-colors hover:bg-muted/80",
-                    index === activeIndex && "rounded-md bg-[#e4e8f4]"
+                    "w-full cursor-pointer px-[14px] py-[9px] text-left transition-colors hover:bg-[#F0F0F0]",
+                    index === activeIndex && "border-l-2 border-[#A8882A] bg-[rgba(168,136,42,0.07)] pl-[12px]"
                   )}
                 >
-                  <div className="text-xs text-muted-foreground">
+                  <div
+                    className={cn(
+                      "mb-[3px] text-[10px] text-[#AAAAAA]",
+                      index === activeIndex && "text-[#A8882A]"
+                    )}
+                    style={{ fontFamily: '"IBM Plex Mono", monospace' }}
+                  >
                     [{line.timestamp}]
                   </div>
                   {displayMode === "en" && (
-                    <div className="mt-0.5 text-sm text-foreground">{line.en}</div>
+                    <div
+                      className="mb-[3px] text-[13px] font-normal leading-[1.6] text-[#111111]"
+                      style={{ fontFamily: '"DM Sans", sans-serif' }}
+                    >
+                      {line.en}
+                    </div>
                   )}
                   {displayMode === "zh" && (
                     <div
                       className={cn(
-                        "mt-0.5 text-sm",
+                        "text-[12.5px] font-normal leading-[1.6]",
                         isPlaceholderZh(line.zh)
-                          ? "italic text-muted-foreground"
-                          : "text-foreground"
+                          ? "italic text-[#444444]"
+                          : "text-[#444444]"
                       )}
+                      style={{ fontFamily: '"DM Sans", sans-serif' }}
                     >
                       {line.zh}
                     </div>
                   )}
                   {displayMode === "bilingual" && (
                     <>
-                      <div className="mt-0.5 text-sm text-foreground">
+                      <div
+                        className="mb-[3px] text-[13px] font-normal leading-[1.6] text-[#111111]"
+                        style={{ fontFamily: '"DM Sans", sans-serif' }}
+                      >
                         {line.en}
                       </div>
                       <div
                         className={cn(
-                          "mt-0.5 text-sm text-muted-foreground",
+                          "text-[12.5px] font-normal leading-[1.6] text-[#444444]",
                           isPlaceholderZh(line.zh) && "italic"
                         )}
+                        style={{ fontFamily: '"DM Sans", sans-serif' }}
                       >
                         {line.zh}
                       </div>

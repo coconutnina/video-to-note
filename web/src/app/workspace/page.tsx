@@ -3,9 +3,18 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import * as React from "react";
-import { ArrowLeft, Map, Maximize, Minimize } from "lucide-react";
+import * as Tooltip from "@radix-ui/react-tooltip";
+import { Maximize, Minimize } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AIChatPanel } from "@/components/workspace/AIChatPanel";
 import { MindMap } from "@/components/workspace/MindMap";
 import { SubtitlePanel } from "@/components/workspace/SubtitlePanel";
@@ -129,6 +138,10 @@ function WorkspaceClient() {
   const [mindmapNodes, setMindmapNodes] = React.useState<FlowNode[] | null>(null);
   const [mindmapEdges, setMindmapEdges] = React.useState<FlowEdge[] | null>(null);
   const [mindmapLoading, setMindmapLoading] = React.useState(false);
+  const [downloadOpen, setDownloadOpen] = React.useState(false);
+  const [regenOpen, setRegenOpen] = React.useState(false);
+  const [regenPrompt, setRegenPrompt] = React.useState("");
+  const [regenCount, setRegenCount] = React.useState(0);
   const [currentTime, setCurrentTime] = React.useState(0);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [videoSlotRect, setVideoSlotRect] = React.useState<{
@@ -142,6 +155,23 @@ function WorkspaceClient() {
   const slotNavRef = React.useRef<HTMLDivElement>(null);
   const slotFocusRef = React.useRef<HTMLDivElement>(null);
   const videoPlayerRef = React.useRef<VideoPlayerHandle>(null);
+  const downloadRef = React.useRef<HTMLDivElement>(null);
+  const mindmapDownloadImageRef = React.useRef<(() => void) | null>(null);
+  const mindmapDownloadMarkdownRef = React.useRef<(() => void) | null>(null);
+  const handleDownloadImage = React.useCallback(() => {
+    if (mindmapDownloadImageRef.current) {
+      mindmapDownloadImageRef.current();
+      return;
+    }
+    console.log("download image hd");
+  }, []);
+  const handleDownloadMarkdown = React.useCallback(() => {
+    if (mindmapDownloadMarkdownRef.current) {
+      mindmapDownloadMarkdownRef.current();
+      return;
+    }
+    console.log("download markdown");
+  }, []);
 
   React.useEffect(() => {
     if (!videoId) return;
@@ -489,30 +519,172 @@ function WorkspaceClient() {
     videoPlayerRef.current?.seekTo(parseTimestampToSeconds(time));
   }, []);
 
+  React.useEffect(() => {
+    if (!downloadOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (downloadRef.current && target && !downloadRef.current.contains(target)) {
+        setDownloadOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [downloadOpen]);
+
+  React.useEffect(() => {
+    if (!videoId || typeof window === "undefined") return;
+    const raw = localStorage.getItem(`workspace:regen-count:${videoId}`);
+    const count = raw ? Number(raw) : 0;
+    setRegenCount(Number.isFinite(count) ? Math.max(0, Math.min(3, count)) : 0);
+  }, [videoId]);
+
+  React.useEffect(() => {
+    if (!videoId || typeof window === "undefined") return;
+    localStorage.setItem(`workspace:regen-count:${videoId}`, String(regenCount));
+  }, [videoId, regenCount]);
+
   return (
-    <div ref={wrapperRef} className="relative flex h-screen overflow-hidden bg-background">
+    <div ref={wrapperRef} className="relative flex h-screen overflow-hidden bg-[#FBFBFB]">
       {/* 导航模式布局：始终在 DOM 中，用 hidden / flex 控制显隐 */}
       <div
         className={`h-full w-full overflow-hidden ${mode === "nav" ? "flex" : "hidden"}`}
         aria-hidden={mode !== "nav"}
       >
-        <div className="flex min-w-0 min-h-0 flex-[1] flex-col border-r">
-          <header className="flex shrink-0 items-center justify-between gap-2 border-b bg-background px-3 py-2">
+        <div
+          className="flex min-h-0 min-w-0 flex-[1] flex-col bg-[#FBFBFB]"
+          style={{ boxShadow: "2px 0 14px rgba(0,0,0,0.06)", zIndex: 1, position: "relative" }}
+        >
+          <header
+            className="flex h-[46px] shrink-0 items-center gap-2 bg-[#FBFBFB] px-[14px]"
+            style={{ borderBottom: "1px solid rgba(0,0,0,0.06)" }}
+          >
             <Link
               href="/"
-              className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline"
+              className="group inline-flex items-center gap-2"
+              aria-label="返回首页"
             >
-              返回首页
+              <svg
+                className="size-7 shrink-0"
+                viewBox="0 0 28 28"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden
+              >
+                <circle cx="14" cy="14" r="3.5" fill="#111111" />
+                <line x1="14" y1="10.5" x2="14" y2="5" stroke="#A8882A" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="17" y1="11.5" x2="21.5" y2="7.5" stroke="#A8882A" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="17.5" y1="14.5" x2="23" y2="14.5" stroke="#A8882A" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="17" y1="17" x2="21.5" y2="21" stroke="#C8B870" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="14" y1="17.5" x2="14" y2="23" stroke="#C8B870" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="11" y1="17" x2="6.5" y2="21" stroke="#C8B870" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="10.5" y1="14.5" x2="5" y2="14.5" stroke="#A8882A" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="11" y1="11.5" x2="6.5" y2="7.5" stroke="#A8882A" strokeWidth="1.5" strokeLinecap="round" />
+                <circle cx="14" cy="4" r="1.8" fill="#A8882A" />
+                <circle cx="22.5" cy="6.5" r="1.8" fill="#A8882A" />
+                <circle cx="24" cy="14.5" r="1.8" fill="#A8882A" />
+                <circle cx="22.5" cy="22" r="1.8" fill="#C8B870" />
+                <circle cx="14" cy="24" r="1.8" fill="#C8B870" />
+                <circle cx="5.5" cy="22" r="1.8" fill="#C8B870" />
+                <circle cx="4" cy="14.5" r="1.8" fill="#A8882A" />
+                <circle cx="5.5" cy="6.5" r="1.8" fill="#A8882A" />
+              </svg>
+              <span
+                className="text-[16px] font-medium text-[#111111] group-hover:text-[#111111]"
+                style={{ fontFamily: '"EB Garamond", serif' }}
+              >
+                video-to-note
+              </span>
             </Link>
-            <Button
+            <span className="mx-1 h-[18px] w-px bg-[rgba(0,0,0,0.08)]" />
+            <button
               type="button"
-              variant="outline"
-              size="sm"
-              onClick={toggleMode}
-              aria-label="切换到专注观看模式"
+              onClick={() => setRegenOpen(true)}
+              className="flex h-[30px] items-center gap-1.5 rounded-md border border-[#E4E4E4] px-3 text-[12.5px] text-[#444444] transition-all hover:border-[#AAAAAA] hover:text-[#111111]"
             >
-              ▶ 专注观看
-            </Button>
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 13 13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <path d="M10.5 2.5A5 5 0 1 0 10.5 9" />
+                <path d="M10.5 2.5V5.5H7.5" />
+              </svg>
+              重新生成
+            </button>
+            <div ref={downloadRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setDownloadOpen((v) => !v)}
+                className="flex h-[30px] items-center gap-1.5 rounded-md border border-[#E4E4E4] px-3 text-[12.5px] text-[#444444] transition-all hover:border-[#AAAAAA] hover:text-[#111111]"
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 13 13"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  aria-hidden
+                >
+                  <path d="M6.5 2v7M3 9l3.5 3 3.5-3" />
+                  <path d="M2 11.5h9" />
+                </svg>
+                下载
+                <span className="text-[10px] opacity-60">▾</span>
+              </button>
+              {downloadOpen && (
+                <div className="absolute left-0 top-full z-50 mt-1.5 min-w-[136px] overflow-hidden rounded-lg border border-[#E4E4E4] bg-[#FBFBFB] shadow-[0_4px_20px_rgba(0,0,0,0.10)]">
+                  <button
+                    type="button"
+                    className="block w-full border-b border-[#F0F0F0] px-3 py-2 text-left text-[12.5px] text-[#444444] hover:bg-[#F0F0F0] hover:text-[#111111]"
+                    onClick={() => {
+                      handleDownloadMarkdown();
+                      setDownloadOpen(false);
+                    }}
+                  >
+                    Markdown
+                  </button>
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-2 text-left text-[12.5px] text-[#444444] hover:bg-[#F0F0F0] hover:text-[#111111]"
+                    onClick={() => {
+                      handleDownloadImage();
+                      setDownloadOpen(false);
+                    }}
+                  >
+                    高清图片
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={() => setMode("focus")}
+              aria-label="切换到专注观看模式"
+              className="flex h-[30px] items-center gap-1.5 rounded-md border border-[#111111] bg-[#111111] px-3 text-[12.5px] text-white transition-all hover:bg-[#333333]"
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 13 13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <rect x="2" y="3.5" width="9" height="6" rx="1" />
+                <path d="M2 6h9" />
+              </svg>
+              专注模式
+            </button>
           </header>
           <div className="relative flex-1 overflow-hidden">
             <MindMap
@@ -521,16 +693,26 @@ function WorkspaceClient() {
               initialNodes={mindmapNodes}
               initialEdges={mindmapEdges}
               onNodeClick={(seconds) => videoPlayerRef.current?.seekTo(seconds)}
+              onDownloadImage={(download) => {
+                mindmapDownloadImageRef.current = download;
+              }}
+              onDownloadMarkdown={(download) => {
+                mindmapDownloadMarkdownRef.current = download;
+              }}
             />
           </div>
         </div>
-        <div className="flex min-w-0 min-h-0 flex-[1] flex-col">
-          <div className="flex flex-1 flex-col gap-2 overflow-hidden p-2">
+        <div className="flex min-h-0 min-w-0 flex-[1] flex-col bg-[#FBFBFB]">
+          <div className="flex flex-1 flex-col overflow-hidden">
             <div ref={slotNavRef} className="min-h-0 flex-1" />
-            <div className="h-[40%] min-h-0 shrink-0">
+            <div
+              className="h-[42%] min-h-0 shrink-0"
+              style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}
+            >
               <SubtitlePanel
                 mode={subtitleMode}
                 onModeChange={setSubtitleMode}
+                className="border-l-0"
                 currentTimeSeconds={currentTime}
                 lines={renderedLines}
                 transcriptStatus={transcriptStatus}
@@ -555,57 +737,154 @@ function WorkspaceClient() {
 
       {/* 专注模式：左侧视频+字幕，右侧 AI 固定栏 */}
       <div
-        className={`h-full w-full min-h-0 overflow-hidden ${mode === "focus" ? "flex" : "hidden"}`}
+        className={`h-full w-full min-h-0 ${mode === "focus" ? "flex" : "hidden"}`}
         aria-hidden={mode !== "focus"}
       >
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* 视频容器：黑底 + 16:9 画面居中，左右黑边上的控制 */}
-          <div
-            className="relative w-full shrink-0 bg-black"
-            style={{ height: "60vh" }}
-          >
-            <div
-              ref={slotFocusRef}
-              className="mx-auto h-full"
-              style={{
-                aspectRatio: "16/9",
-                maxWidth: "calc(60vh * 16 / 9)",
-              }}
-            />
-            <div className="absolute left-0 top-0 z-20 flex h-full w-10 flex-col items-center justify-between py-4">
-              <Link
-                href="/"
-                className="text-white/60 transition-colors hover:text-white"
-                title="返回首页"
-                aria-label="返回首页"
-              >
-                <ArrowLeft size={18} aria-hidden />
-              </Link>
+        <Tooltip.Provider delayDuration={300}>
+        <aside
+          className="flex h-full w-[46px] shrink-0 flex-col items-center bg-[#FBFBFB] py-3"
+          style={{
+            boxShadow: "2px 0 8px rgba(0,0,0,0.05)",
+            zIndex: 2,
+            position: "relative",
+            overflow: "visible",
+          }}
+        >
+          <Link href="/" className="mb-3 block" title="返回首页" aria-label="返回首页">
+            <svg width="26" height="26" viewBox="0 0 28 28" fill="none" aria-hidden>
+              <circle cx="14" cy="14" r="3.5" fill="#111111" />
+              <line x1="14" y1="10.5" x2="14" y2="5" stroke="#A8882A" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="17" y1="11.5" x2="21.5" y2="7.5" stroke="#A8882A" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="17.5" y1="14.5" x2="23" y2="14.5" stroke="#A8882A" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="17" y1="17" x2="21.5" y2="21" stroke="#C8B870" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="14" y1="17.5" x2="14" y2="23" stroke="#C8B870" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="11" y1="17" x2="6.5" y2="21" stroke="#C8B870" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="10.5" y1="14.5" x2="5" y2="14.5" stroke="#A8882A" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="11" y1="11.5" x2="6.5" y2="7.5" stroke="#A8882A" strokeWidth="1.5" strokeLinecap="round" />
+              <circle cx="14" cy="4" r="1.8" fill="#A8882A" />
+              <circle cx="22.5" cy="6.5" r="1.8" fill="#A8882A" />
+              <circle cx="24" cy="14.5" r="1.8" fill="#A8882A" />
+              <circle cx="22.5" cy="22" r="1.8" fill="#C8B870" />
+              <circle cx="14" cy="24" r="1.8" fill="#C8B870" />
+              <circle cx="5.5" cy="22" r="1.8" fill="#C8B870" />
+              <circle cx="4" cy="14.5" r="1.8" fill="#A8882A" />
+              <circle cx="5.5" cy="6.5" r="1.8" fill="#A8882A" />
+            </svg>
+          </Link>
+          <div className="my-2 h-px w-[22px] bg-[#E4E4E4]" />
+          <Tooltip.Root>
+            <Tooltip.Trigger asChild>
               <button
                 type="button"
-                onClick={toggleMode}
-                className="text-white/60 transition-colors hover:text-white"
-                title="导航模式"
+                onClick={() => setMode("nav")}
+                className="group relative flex size-[34px] items-center justify-center rounded-md text-[#777777] transition hover:bg-[#F0F0F0] hover:text-[#111111]"
                 aria-label="切换到导航模式"
               >
-                <Map size={18} aria-hidden />
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 15 15"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  aria-hidden
+                >
+                  <circle cx="2.5" cy="7.5" r="1.5" />
+                  <circle cx="12.5" cy="3.5" r="1.5" />
+                  <circle cx="12.5" cy="7.5" r="1.5" />
+                  <circle cx="12.5" cy="11.5" r="1.5" />
+                  <path d="M4 7.5L11 3.5M4 7.5L11 7.5M4 7.5L11 11.5" />
+                </svg>
               </button>
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+              <Tooltip.Content
+                side="right"
+                sideOffset={10}
+                className="bg-[#111111] text-white text-[11px] px-2 py-1 rounded whitespace-nowrap z-[999]"
+              >
+                导航模式
+              </Tooltip.Content>
+            </Tooltip.Portal>
+          </Tooltip.Root>
+          <Tooltip.Root>
+            <Tooltip.Trigger asChild>
               <button
                 type="button"
                 onClick={toggleFullscreen}
-                className="text-white/60 transition-colors hover:text-white"
-                title={isFullscreen ? "退出全屏" : "全屏"}
+                className="group relative mt-1 flex size-[34px] items-center justify-center rounded-md text-[#777777] transition hover:bg-[#F0F0F0] hover:text-[#111111]"
                 aria-label={isFullscreen ? "退出全屏" : "全屏"}
               >
-                {isFullscreen ? (
-                  <Minimize size={18} aria-hidden />
-                ) : (
-                  <Maximize size={18} aria-hidden />
-                )}
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 15 15"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M2 5.5V2.5H5M10 2.5H13V5.5M13 9.5V12.5H10M5 12.5H2V9.5" />
+                </svg>
               </button>
-            </div>
-          </div>
-          <div className="min-h-0 flex-1 overflow-hidden border-t">
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+              <Tooltip.Content
+                side="right"
+                sideOffset={10}
+                className="bg-[#111111] text-white text-[11px] px-2 py-1 rounded whitespace-nowrap z-[999]"
+              >
+                全屏观看
+              </Tooltip.Content>
+            </Tooltip.Portal>
+          </Tooltip.Root>
+          <div className="flex-1" />
+          <div className="my-2 h-px w-[22px] bg-[#E4E4E4]" />
+          <Tooltip.Root>
+            <Tooltip.Trigger asChild>
+              <Link
+                href="/"
+                className="group relative flex size-[34px] items-center justify-center rounded-md text-[#777777] transition hover:bg-[#F0F0F0] hover:text-[#111111]"
+                aria-label="返回首页"
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 15 15"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M9.5 11.5L5.5 7.5l4-4" />
+                </svg>
+              </Link>
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+              <Tooltip.Content
+                side="right"
+                sideOffset={10}
+                className="bg-[#111111] text-white text-[11px] px-2 py-1 rounded whitespace-nowrap z-[999]"
+              >
+                返回首页
+              </Tooltip.Content>
+            </Tooltip.Portal>
+          </Tooltip.Root>
+        </aside>
+        <div
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+          style={{ boxShadow: "2px 0 14px rgba(0,0,0,0.06)", zIndex: 1, position: "relative" }}
+        >
+          <div ref={slotFocusRef} className="flex-1 min-h-0" />
+          <div
+            className="h-[25vh] min-h-0 shrink-0 overflow-hidden"
+            style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}
+          >
             <SubtitlePanel
               mode="bilingual"
               hideHeader
@@ -630,13 +909,14 @@ function WorkspaceClient() {
             />
           </div>
         </div>
-        <div className="flex h-full w-[360px] shrink-0 flex-col border-l border-border bg-background">
+        <div className="flex h-full w-[360px] shrink-0 flex-col bg-[#FBFBFB]">
           <AIChatPanel
             variant="dock"
             transcript={chatTranscript}
             onSeekTo={handleChatSeekTo}
           />
         </div>
+        </Tooltip.Provider>
       </div>
 
       {/* 唯一一个播放器实例：绝对定位到当前模式的“槽位”，不随模式切换销毁 */}
@@ -666,6 +946,81 @@ function WorkspaceClient() {
           onSeekTo={handleChatSeekTo}
         />
       )}
+
+      <Dialog open={regenOpen} onOpenChange={setRegenOpen}>
+        <DialogContent className="max-w-[480px] p-0">
+          <DialogHeader className="border-b px-6 pb-4 pt-5">
+            <DialogTitle
+              className="text-[20px] font-medium text-[#111111]"
+              style={{ fontFamily: '"EB Garamond", serif' }}
+            >
+              重新生成思维导图
+            </DialogTitle>
+            <DialogDescription className="pt-1 text-[12.5px] text-[#777777]">
+              可补充说明，引导 AI 生成更符合你需要的结构
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 pb-2 pt-5">
+            <label className="mb-2 block text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              补充提示词（可选）
+            </label>
+            <textarea
+              value={regenPrompt}
+              onChange={(e) => setRegenPrompt(e.target.value)}
+              className="h-[100px] w-full resize-none rounded-md border px-3 py-2 text-sm outline-none transition focus:border-[#A8882A]"
+              placeholder="例如：请把「实操案例」单独作为一级节点展开..."
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              留空则按默认方式重新生成。提示词将与原视频内容一起送入 AI。
+            </p>
+            <div className="mt-3 flex items-center gap-2 rounded-md bg-muted px-3 py-2">
+              <div className="flex gap-1">
+                {Array.from({ length: 3 }).map((_, idx) => (
+                  <span
+                    key={idx}
+                    className={`h-[6px] w-[22px] rounded ${
+                      idx < regenCount ? "bg-[#A8882A]" : "bg-[#E4E4E4]"
+                    }`}
+                  />
+                ))}
+              </div>
+              <p className="text-xs text-[#777777]">
+                本视频已使用 <strong className="font-medium text-[#111111]">{regenCount} / 3</strong> 次
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="px-6 pb-5 pt-3">
+            <Button type="button" variant="outline" onClick={() => setRegenOpen(false)}>
+              取消
+            </Button>
+            <Button
+              type="button"
+              className="bg-[#111111] text-white hover:bg-[#333333]"
+              onClick={() => {
+                if (regenCount >= 3) return;
+                setRegenOpen(false);
+                setRegenCount((c) => c + 1);
+                console.log("regenerate", regenPrompt);
+              }}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 13 13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <path d="M10.5 2.5A5 5 0 1 0 10.5 9" />
+                <path d="M10.5 2.5V5.5H7.5" />
+              </svg>
+              开始重新生成
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

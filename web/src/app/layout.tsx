@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DM_Sans, EB_Garamond, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import { AuthProvider } from "@/components/auth/AuthProvider";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -37,7 +38,7 @@ export default function RootLayout({
       <body
         className={`${dmSans.variable} ${ebGaramond.variable} ${ibmPlexMono.variable} font-sans antialiased`}
       >
-        {children}
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

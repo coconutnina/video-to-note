@@ -62,12 +62,15 @@ function parseContentWithTimestamps(
           key={`ts-${match.index}`}
           type="button"
           onClick={() => onSeekTo(time)}
-          className="timestamp-btn mx-0.5 rounded px-1 font-medium text-primary underline decoration-primary/60 underline-offset-2 hover:decoration-primary"
+          className="mx-0.5 inline-block cursor-pointer rounded-[3px] border border-[rgba(168,136,42,0.22)] bg-[rgba(168,136,42,0.07)] px-[5px] py-[1px] font-mono text-[10.5px] text-[#A8882A]"
         >
           {match[0]}
         </button>
       ) : (
-        <span key={`ts-${match.index}`} className="font-medium text-muted-foreground">
+        <span
+          key={`ts-${match.index}`}
+          className="mx-0.5 inline-block cursor-pointer rounded-[3px] border border-[rgba(168,136,42,0.22)] bg-[rgba(168,136,42,0.07)] px-[5px] py-[1px] font-mono text-[10.5px] text-[#A8882A]"
+        >
           {match[0]}
         </span>
       )
@@ -175,42 +178,37 @@ export function AIChatPanel({
 
   const panelInner = (
     <>
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
-        <h3 className="text-sm font-semibold">AI 助手</h3>
+      <header className="flex h-[42px] shrink-0 items-center justify-between gap-2 border-b border-[#E4E4E4] px-[14px]">
+        <h3 className="text-[15px] font-medium text-[#111111]" style={{ fontFamily: '"EB Garamond", serif' }}>
+          AI 助手
+        </h3>
         <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "text-xs",
-              mode === "search" ? "text-muted-foreground" : "font-medium text-foreground"
-            )}
-          >
-            仅视频
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={mode === "search"}
-            onClick={() => setMode((m) => (m === "video" ? "search" : "video"))}
-            className={cn(
-              "relative h-5 w-10 shrink-0 cursor-pointer rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              mode === "search" ? "bg-primary" : "bg-muted"
-            )}
-          >
-            <span
+          <div className="flex overflow-hidden rounded-[5px] border border-[#E4E4E4]">
+            <button
+              type="button"
+              onClick={() => setMode("video")}
               className={cn(
-                "absolute top-0.5 block h-4 w-4 rounded-full bg-background shadow transition-all duration-200",
-                mode === "search" ? "left-6" : "left-0.5"
+                "border-r border-[#E4E4E4] px-[10px] py-[3px] text-[11.5px] transition-colors",
+                mode === "video"
+                  ? "bg-[#111111] text-white"
+                  : "bg-transparent text-[#777777] hover:text-[#111111]"
               )}
-            />
-          </button>
-          <span
-            className={cn(
-              "text-xs",
-              mode === "search" ? "font-medium text-foreground" : "text-muted-foreground"
-            )}
-          >
-            联网搜索
-          </span>
+            >
+              仅视频
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("search")}
+              className={cn(
+                "px-[10px] py-[3px] text-[11.5px] transition-colors",
+                mode === "search"
+                  ? "bg-[#111111] text-white"
+                  : "bg-transparent text-[#777777] hover:text-[#111111]"
+              )}
+            >
+              联网搜索
+            </button>
+          </div>
           {!isDock && (
             <button
               type="button"
@@ -224,7 +222,7 @@ export function AIChatPanel({
         </div>
       </header>
 
-      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-[14px]">
         <ul className="flex flex-col gap-3">
           {messages.map((msg) => (
             <li
@@ -236,11 +234,12 @@ export function AIChatPanel({
             >
               <div
                 className={cn(
-                  "max-w-[85%] rounded-lg px-3 py-2 text-sm",
+                  "max-w-[86%] px-[13px] py-[9px] text-[13px] leading-[1.6]",
                   msg.role === "user"
-                    ? "bg-muted text-foreground"
-                    : "border bg-card text-foreground"
+                    ? "rounded-[10px_3px_10px_10px] bg-[#111111] text-white"
+                    : "rounded-[3px_10px_10px_10px] bg-[#F0F0F0] text-[#111111]"
                 )}
+                style={{ fontFamily: '"DM Sans", sans-serif' }}
               >
                 {msg.role === "assistant" ? (
                   <div className="whitespace-pre-wrap">
@@ -254,7 +253,7 @@ export function AIChatPanel({
           ))}
           {typing && (
             <li className="flex justify-start">
-              <div className="rounded-lg border bg-card px-3 py-2 text-sm">
+              <div className="rounded-[3px_10px_10px_10px] bg-[#F0F0F0] px-[13px] py-[9px] text-[13px] text-[#111111]">
                 <span className="inline-flex gap-0.5">
                   <span className="animate-bounce [animation-delay:0ms]">.</span>
                   <span className="animate-bounce [animation-delay:150ms]">.</span>
@@ -266,22 +265,31 @@ export function AIChatPanel({
         </ul>
       </div>
 
-      <footer className="flex shrink-0 gap-2 border-t p-2">
+      <footer className="flex shrink-0 items-end gap-[7px] border-t border-[#E4E4E4] p-[9px_11px]">
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="问问视频里的内容..."
-          className="min-w-0 flex-1"
+          className="min-w-0 flex-1 rounded-[8px] border-[#E4E4E4] text-[13px] focus-visible:border-[#A8882A] focus-visible:ring-0"
           disabled={typing}
         />
         <Button
           type="button"
           onClick={handleSend}
           disabled={!input.trim() || typing}
-          size="default"
+          size="icon"
+          className="h-[34px] w-[34px] rounded-[7px] bg-[#111111] p-0 text-white hover:bg-[#333333]"
         >
-          发送
+          <svg viewBox="0 0 13 13" fill="none" className="size-[13px]" aria-hidden>
+            <path
+              d="M11 6.5H2M7 2l4 4.5L7 11"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </Button>
       </footer>
     </>
@@ -290,7 +298,7 @@ export function AIChatPanel({
   if (isDock) {
     return (
       <section
-        className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden bg-background", className)}
+        className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#FBFBFB]", className)}
         aria-label="AI 助手问答面板"
       >
         {panelInner}
@@ -303,18 +311,31 @@ export function AIChatPanel({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-6 right-6 z-[9998] flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
+        className="fixed bottom-[22px] right-[22px] z-[9998] flex h-[44px] w-[44px] items-center justify-center rounded-[12px] bg-[#111111] text-white shadow-[0_4px_16px_rgba(0,0,0,0.2)] transition-all hover:bg-[#A8882A] hover:shadow-[0_6px_20px_rgba(168,136,42,0.35)]"
         aria-label={open ? "收起 AI 助手" : "打开 AI 助手"}
       >
-        <span className="text-xl" aria-hidden>
-          💬
-        </span>
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+          <path
+            d="M10 2.5L11.2 7.8L16.5 9L11.2 10.2L10 15.5L8.8 10.2L3.5 9L8.8 7.8L10 2.5Z"
+            fill="white"
+          />
+          <path
+            d="M15.5 13L16.2 15.3L18.5 16L16.2 16.7L15.5 19L14.8 16.7L12.5 16L14.8 15.3L15.5 13Z"
+            fill="white"
+            opacity="0.7"
+          />
+          <path
+            d="M4.5 3L5 4.8L6.8 5.3L5 5.8L4.5 7.5L4 5.8L2.2 5.3L4 4.8L4.5 3Z"
+            fill="white"
+            opacity="0.5"
+          />
+        </svg>
       </button>
 
       {panelOpen && (
         <section
           className={cn(
-            "fixed bottom-24 right-6 z-[9999] flex h-[60vh] w-[380px] flex-col overflow-hidden rounded-lg border bg-background shadow-xl",
+            "fixed bottom-[78px] right-[22px] z-[9999] flex h-[450px] w-[360px] flex-col overflow-hidden rounded-[14px] border border-[#E4E4E4] bg-[#FBFBFB] shadow-[0_8px_40px_rgba(0,0,0,0.13)]",
             className
           )}
           aria-label="AI 助手问答面板"

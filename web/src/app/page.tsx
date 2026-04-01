@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import * as React from "react";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { AvatarImage } from "@/components/avatars";
 
 function isValidYouTubeUrl(raw: string): boolean {
   const value = raw.trim();
@@ -163,8 +165,25 @@ const featureCards = [
 
 export default function HomePage() {
   const router = useRouter();
+  const { user, openAuthModal, signOut } = useAuth();
   const [url, setUrl] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+
+    if (menuOpen) {
+      window.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => window.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
 
   function validate(current: string): string | null {
     const trimmed = current.trim();
@@ -187,6 +206,8 @@ export default function HomePage() {
     router.push(`/loading?${params.toString()}`);
   }
 
+  const displayName = user?.nickname ?? "用户";
+
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-[#FBFBFB] text-[#111111]">
       <nav className="relative z-[2] flex h-16 shrink-0 items-center justify-between border-b border-[#E8E8E8] px-[72px]">
@@ -205,9 +226,40 @@ export default function HomePage() {
             建议反馈
           </span>
           <div className="h-4 w-px bg-[#E8E8E8]" />
-          <div className="cursor-default rounded-[5px] bg-[#111111] px-[22px] py-[9px] text-[13px] font-normal tracking-[0.02em] text-[#FBFBFB] transition-opacity">
-            开始使用 →
-          </div>
+          {user ? (
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                onClick={() => setMenuOpen((prev) => !prev)}
+                className="flex items-center gap-2 rounded-[6px] border border-[#E8E8E8] bg-white px-3 py-1.5 text-[13px] text-[#111111] transition-colors hover:border-[#D9D9D9]"
+              >
+                <AvatarImage avatarId={user.avatar ?? 1} size={24} />
+                <span>{displayName}</span>
+              </button>
+              {menuOpen ? (
+                <div className="absolute right-0 top-[calc(100%+8px)] w-[132px] rounded-[8px] border border-[#E8E8E8] bg-white p-1 shadow-[0_10px_24px_rgba(0,0,0,0.12)]">
+                  <button
+                    type="button"
+                    className="w-full rounded-[6px] px-3 py-2 text-left text-[13px] text-[#111111] transition-colors hover:bg-[#F5F5F5]"
+                    onClick={async () => {
+                      await signOut();
+                      setMenuOpen(false);
+                    }}
+                  >
+                    退出登录
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={openAuthModal}
+              className="cursor-pointer rounded-[5px] bg-[#111111] px-[22px] py-[9px] text-[13px] font-normal tracking-[0.02em] text-[#FBFBFB] transition-opacity hover:opacity-[0.86]"
+            >
+              开始使用 →
+            </button>
+          )}
         </div>
       </nav>
 

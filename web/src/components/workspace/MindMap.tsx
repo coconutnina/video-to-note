@@ -10,7 +10,6 @@ import {
   useReactFlow,
   Background,
   Controls,
-  Panel,
   ConnectionLineType,
   type Node,
   type OnNodesChange,
@@ -18,21 +17,11 @@ import {
 } from "reactflow";
 import "reactflow/dist/style.css";
 
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { MindMapNode, type MindMapNodeData } from "@/components/workspace/MindMapNode";
 import { flowToMarkdown, type FlowEdge, type FlowNode } from "@/lib/mindmap";
 import { cn } from "@/lib/utils";
 
 const nodeTypes = { mindmap: MindMapNode };
-
 const NODE_EXPORT_WIDTH = 320;
 const NODE_EXPORT_HEIGHT = 120;
 const BBOX_PADDING = 60;
@@ -91,6 +80,10 @@ export interface MindMapProps {
   initialEdges?: FlowEdge[] | null;
   /** 点击节点时根据 timestamp 跳转（秒） */
   onNodeClick?: (seconds: number) => void;
+  /** 向父组件暴露图片下载函数 */
+  onDownloadImage?: (download: () => void) => void;
+  /** 向父组件暴露 Markdown 下载函数 */
+  onDownloadMarkdown?: (download: () => void) => void;
 }
 
 function MindMapCanvas({
@@ -98,9 +91,10 @@ function MindMapCanvas({
   initialNodes,
   initialEdges,
   onNodeClick,
+  onDownloadImage,
+  onDownloadMarkdown,
 }: Omit<MindMapProps, "loading">) {
   const { getNodes } = useReactFlow();
-
   const [rawNodes, setRawNodes] = React.useState<FlowNode[]>(
     () => initialNodes ?? []
   );
@@ -164,25 +158,11 @@ function MindMapCanvas({
     },
     [onNodeClick]
   );
-
-  const [downloadMenuOpen, setDownloadMenuOpen] = React.useState(false);
-  const [pngExporting, setPngExporting] = React.useState(false);
   const reactFlowWrapperRef = React.useRef<HTMLDivElement>(null);
-  const downloadMenuWrapperRef = React.useRef<HTMLDivElement>(null);
+  const [pngExporting, setPngExporting] = React.useState(false);
 
-  React.useEffect(() => {
-    if (!downloadMenuOpen) return;
-    const onMouseDown = (e: MouseEvent) => {
-      const t = e.target;
-      if (!(t instanceof Element)) return;
-      if (downloadMenuWrapperRef.current?.contains(t)) return;
-      setDownloadMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [downloadMenuOpen]);
-
-  const handleDownloadJpg = React.useCallback(async () => {
+  const handleDownloadImage = React.useCallback(async () => {
+    if (pngExporting) return;
     const wrapper = reactFlowWrapperRef.current;
     if (!wrapper) return;
     const viewport = wrapper.querySelector(
@@ -231,11 +211,10 @@ function MindMapCanvas({
     } finally {
       wrapper.classList.remove("capturing");
       setPngExporting(false);
-      setDownloadMenuOpen(false);
     }
-  }, [getNodes]);
+  }, [getNodes, pngExporting]);
 
-  const handleDownloadMd = React.useCallback(() => {
+  const handleDownloadMarkdown = React.useCallback(() => {
     const md = flowToMarkdown(rawNodes, rawEdges);
     const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -244,114 +223,43 @@ function MindMapCanvas({
     a.download = "mindmap.md";
     a.click();
     URL.revokeObjectURL(url);
-    setDownloadMenuOpen(false);
   }, [rawNodes, rawEdges]);
 
-  const [dialogOpen, setDialogOpen] = React.useState(false);
-  const [regenerateTopic, setRegenerateTopic] = React.useState("");
+  React.useEffect(() => {
+    onDownloadImage?.(() => {
+      void handleDownloadImage();
+    });
+  }, [onDownloadImage, handleDownloadImage]);
 
-  const handleRegenerateConfirm = () => {
-    setRegenerateTopic("");
-    setDialogOpen(false);
-  };
+  React.useEffect(() => {
+    onDownloadMarkdown?.(handleDownloadMarkdown);
+  }, [onDownloadMarkdown, handleDownloadMarkdown]);
 
   return (
-    <>
-      <div ref={reactFlowWrapperRef} className="h-full w-full">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange as OnNodesChange}
-          onEdgesChange={onEdgesChange as OnEdgesChange}
-          onNodeClick={handleNodeClick}
-          nodeTypes={nodeTypes}
-          connectionLineType={ConnectionLineType.SmoothStep}
-          defaultEdgeOptions={{
-            type: "smoothstep",
-            style: { stroke: "#888", strokeWidth: 1.5 },
-          }}
-          fitView
-          minZoom={0.2}
-          maxZoom={1.5}
-          defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
-          className="h-full w-full"
-          style={{ width: "100%", height: "100%", overflow: "hidden" }}
-        >
-          <Background />
-          <Controls showInteractive={false} />
-          <Panel position="top-left" className="m-2 flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDialogOpen(true)}
-            >
-              重新生成
-            </Button>
-            <div ref={downloadMenuWrapperRef} className="relative">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setDownloadMenuOpen((o) => !o)}
-              >
-                下载
-              </Button>
-              {downloadMenuOpen ? (
-                <div
-                  className="absolute left-0 top-full z-50 mt-1 min-w-[168px] rounded-md border border-gray-200 bg-white p-1 text-sm shadow-md"
-                  role="menu"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-left hover:bg-accent"
-                    onClick={handleDownloadMd}
-                  >
-                    📄 Markdown
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-left hover:bg-accent disabled:opacity-50"
-                    onClick={() => void handleDownloadJpg()}
-                    disabled={pngExporting}
-                  >
-                    {pngExporting ? "生成中..." : "🖼️ 高清图片"}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </Panel>
-        </ReactFlow>
-      </div>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>重新生成</DialogTitle>
-          </DialogHeader>
-          <Input
-            value={regenerateTopic}
-            onChange={(e) => setRegenerateTopic(e.target.value)}
-            placeholder="输入主题"
-            className="mt-2"
-          />
-          <DialogFooter className="mt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setDialogOpen(false)}
-            >
-              取消
-            </Button>
-            <Button type="button" onClick={handleRegenerateConfirm}>
-              确认
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+    <div ref={reactFlowWrapperRef} className="h-full w-full">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange as OnNodesChange}
+        onEdgesChange={onEdgesChange as OnEdgesChange}
+        onNodeClick={handleNodeClick}
+        nodeTypes={nodeTypes}
+        connectionLineType={ConnectionLineType.SmoothStep}
+        defaultEdgeOptions={{
+          type: "smoothstep",
+          style: { stroke: "#888", strokeWidth: 1.5 },
+        }}
+        fitView
+        minZoom={0.2}
+        maxZoom={1.5}
+        defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
+        className="h-full w-full"
+        style={{ width: "100%", height: "100%", overflow: "hidden" }}
+      >
+        <Background />
+        <Controls showInteractive={false} />
+      </ReactFlow>
+    </div>
   );
 }
 
@@ -361,6 +269,8 @@ export function MindMap({
   initialNodes,
   initialEdges,
   onNodeClick,
+  onDownloadImage,
+  onDownloadMarkdown,
 }: MindMapProps) {
   if (loading) {
     return (
@@ -399,6 +309,8 @@ export function MindMap({
           initialNodes={initialNodes}
           initialEdges={initialEdges}
           onNodeClick={onNodeClick}
+          onDownloadImage={onDownloadImage}
+          onDownloadMarkdown={onDownloadMarkdown}
         />
       </ReactFlowProvider>
     </div>
