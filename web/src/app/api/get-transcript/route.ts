@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { transcriptCache } from "@/lib/api-cache";
+import {
+  getTranscriptCache,
+  setTranscriptCache,
+} from "@/lib/supabase-cache";
 
 const ERROR_MESSAGE = "无法获取字幕";
 
@@ -81,6 +85,13 @@ async function handleGetTranscript(videoIdRaw: string | undefined) {
     transcriptCache.delete(videoId);
   }
 
+  const sharedTranscript = await getTranscriptCache(videoId);
+  if (sharedTranscript && sharedTranscript.length > 0) {
+    const cachedResult = { transcript: sharedTranscript };
+    transcriptCache.set(videoId, cachedResult);
+    return NextResponse.json(cachedResult);
+  }
+
   try {
     const content = await fetchTranscriptFromApi(videoId);
 
@@ -102,6 +113,7 @@ async function handleGetTranscript(videoIdRaw: string | undefined) {
     const result = { transcript: mergedTranscript };
     if (result.transcript && result.transcript.length > 0) {
       transcriptCache.set(videoId, result);
+      await setTranscriptCache(videoId, result.transcript);
     }
     return NextResponse.json(result);
   } catch (err) {

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { translationCache } from "@/lib/api-cache";
 import { deepseekStreamCompletion } from "@/lib/deepseek-stream";
+import {
+  getTranslationCache,
+  setTranslationCache,
+} from "@/lib/supabase-cache";
 
 export const maxDuration = 60;
 
@@ -9,6 +13,25 @@ const BATCH_SIZE = 20;
 interface SubtitleItem {
   id: number;
   text: string;
+}
+
+function translationRecordToArray(
+  translations: Record<number, string>
+): { id: number; translated: string }[] {
+  return Object.entries(translations)
+    .map(([id, translated]) => ({ id: Number(id), translated }))
+    .filter((x) => Number.isFinite(x.id))
+    .sort((a, b) => a.id - b.id);
+}
+
+function translationArrayToRecord(
+  translations: { id: number; translated: string }[]
+): Record<number, string> {
+  const out: Record<number, string> = {};
+  for (const item of translations) {
+    out[item.id] = item.translated ?? "";
+  }
+  return out;
 }
 
 const systemPrompt = `你是专业字幕翻译员。
@@ -141,6 +164,17 @@ export async function POST(request: NextRequest) {
       return Response.json(translationCache.get(videoId));
     }
 
+    if (videoId) {
+      const shared = await getTranslationCache(videoId);
+      if (shared) {
+        const cachedResult = {
+          translations: translationRecordToArray(shared),
+        };
+        translationCache.set(videoId, cachedResult);
+        return NextResponse.json(cachedResult);
+      }
+    }
+
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ error: "缺少 DeepSeek API Key" }, { status: 500 });
@@ -165,6 +199,7 @@ export async function POST(request: NextRequest) {
     const result = { translations: allTranslations };
     if (videoId) {
       translationCache.set(videoId, result);
+      await setTranslationCache(videoId, translationArrayToRecord(allTranslations));
     }
     return NextResponse.json(result);
   } catch (error) {

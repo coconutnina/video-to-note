@@ -179,6 +179,22 @@ function WorkspaceClient() {
       .then((info) => {
         setVideoTitle(info.title);
         setChannelTitle(info.channelTitle ?? "");
+        fetch("/api/cache/backfill", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "metadata",
+            videoId,
+            data: {
+              title: info.title ?? "",
+              channelTitle: info.channelTitle ?? "",
+              durationSeconds:
+                typeof info.durationSeconds === "number"
+                  ? info.durationSeconds
+                  : 0,
+            },
+          }),
+        }).catch(() => {});
       })
       .catch(() => {
         setVideoTitle("无法获取视频信息");
@@ -243,6 +259,15 @@ function WorkspaceClient() {
       if (cachedMind) {
         setMindmapNodes(cachedMind.nodes);
         setMindmapEdges(cachedMind.edges);
+        fetch("/api/cache/backfill", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "mindmap",
+            videoId,
+            data: cachedMind,
+          }),
+        }).catch(() => {});
       } else {
         setMindmapLoading(true);
         fetch("/api/generate-mindmap", {
@@ -278,6 +303,15 @@ function WorkspaceClient() {
       if (cachedTranslations) {
         translationsRef.current = { ...cachedTranslations };
         setTranslations({ ...cachedTranslations });
+        fetch("/api/cache/backfill", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "translations",
+            videoId,
+            data: cachedTranslations,
+          }),
+        }).catch(() => {});
       }
 
       if (mergedLineCount > 0) {

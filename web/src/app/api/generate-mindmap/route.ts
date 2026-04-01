@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deepseekStreamCompletion } from "@/lib/deepseek-stream";
-import type { EdgeType, MindMapTreeNode } from "@/lib/mindmap";
+import { treeToFlow, type EdgeType, type FlowEdge, type FlowNode, type MindMapTreeNode } from "@/lib/mindmap";
+import { getMindmapCache, setMindmapCache } from "@/lib/supabase-cache";
 
 export const maxDuration = 60;
 
@@ -230,6 +231,42 @@ function normalizeToTreeNode(n: ApiMindMapNode): MindMapTreeNode {
     detail: n.detail ?? "",
     children: n.children?.map(normalizeToTreeNode),
   };
+}
+
+function flowToTreeRoot(nodes: FlowNode[], edges: FlowEdge[]): MindMapTreeNode | null {
+  if (!nodes.length) return null;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const childrenMap = new Map<string, string[]>();
+  const targets = new Set<string>();
+  for (const e of edges) {
+    if (!childrenMap.has(e.source)) childrenMap.set(e.source, []);
+    childrenMap.get(e.source)!.push(e.target);
+    targets.add(e.target);
+  }
+  const root =
+    nodes.find((n) => (n.data.depth ?? 0) === 0) ??
+    nodes.find((n) => !targets.has(n.id)) ??
+    nodes[0];
+
+  const build = (id: string): MindMapTreeNode | null => {
+    const node = byId.get(id);
+    if (!node) return null;
+    const childIds = childrenMap.get(id) ?? [];
+    const children = childIds
+      .map((cid) => build(cid))
+      .filter((x): x is MindMapTreeNode => x !== null);
+    return {
+      id: node.id,
+      label: node.data.label ?? "",
+      timestamp: node.data.timestamp ?? "",
+      endTimestamp: node.data.endTimestamp ?? "",
+      important: node.data.important,
+      detail: node.data.detail ?? "",
+      children,
+    };
+  };
+
+  return build(root.id);
 }
 
 function collectDetailTargets(
@@ -537,8 +574,10 @@ export async function POST(request: NextRequest) {
       transcript?: TranscriptItem[];
       videoTitle?: string;
       channelTitle?: string;
+      videoId?: string;
     } | null;
     const transcript = body?.transcript ?? [];
+    const videoId = typeof body?.videoId === "string" ? body.videoId.trim() : "";
     const rawTitle =
       typeof body?.videoTitle === "string" ? body.videoTitle.trim() : "";
     const channelTitle =
@@ -548,6 +587,16 @@ export async function POST(request: NextRequest) {
         { error: "transcript 为空或格式错误" },
         { status: 400 }
       );
+    }
+
+    if (videoId) {
+      const cachedMindmap = await getMindmapCache(videoId);
+      if (cachedMindmap) {
+        const root = flowToTreeRoot(cachedMindmap.nodes, cachedMindmap.edges);
+        if (root) {
+          return NextResponse.json({ mindmap: { root } });
+        }
+      }
     }
 
     const windows = buildTimedWindows(transcript, 30);
@@ -589,6 +638,10 @@ export async function POST(request: NextRequest) {
     fixNodeTimestamps(mindmap.root);
     await enrichDetails(apiKey, timedText, mindmap.root, channelTitle);
     const rootTree = normalizeToTreeNode(mindmap.root);
+    if (videoId) {
+      const flow = treeToFlow(rootTree);
+      await setMindmapCache(videoId, { nodes: flow.nodes, edges: flow.edges });
+    }
 
     return NextResponse.json({ mindmap: { root: rootTree } });
   } catch (error) {
