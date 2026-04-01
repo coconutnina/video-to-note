@@ -97,6 +97,9 @@ export const VideoPlayer = React.forwardRef<
           onReady: () => {
             playerInstanceRef.current = player;
             emit();
+            setTimeout(() => {
+              window.dispatchEvent(new Event("resize"));
+            }, 100);
           },
           onStateChange: (e: { data: number }) => {
             stopPoll();
@@ -133,7 +136,7 @@ export const VideoPlayer = React.forwardRef<
       className={cn("flex h-full min-h-0 w-full flex-col", className)}
       aria-label="视频播放器"
     >
-      <div className="relative h-full w-full min-h-0 overflow-hidden rounded-lg bg-black">
+      <div className="relative h-full w-full min-h-0 overflow-hidden bg-black">
         <div
           id={containerId}
           className="absolute inset-0 h-full w-full [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:object-contain"
