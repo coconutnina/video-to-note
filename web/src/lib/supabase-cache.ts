@@ -110,15 +110,21 @@ export async function setMindmapCache(
 ): Promise<void> {
   try {
     const supabase = createServiceRoleClient();
-    await supabase.from("video_mindmaps").upsert(
-      {
-        video_id: videoId,
-        user_id: null,
-        mindmap,
-        mindmap_version: MINDMAP_VERSION,
-      },
-      { onConflict: "video_id,user_id,mindmap_version", ignoreDuplicates: true }
-    );
+    const { data: existing } = await supabase
+      .from("video_mindmaps")
+      .select("id")
+      .eq("video_id", videoId)
+      .is("user_id", null)
+      .eq("mindmap_version", MINDMAP_VERSION)
+      .maybeSingle();
+    if (existing) return;
+    const { error } = await supabase.from("video_mindmaps").insert({
+      video_id: videoId,
+      user_id: null,
+      mindmap,
+      mindmap_version: MINDMAP_VERSION,
+    });
+    if (error) console.warn("supabase mindmap cache write failed", error);
   } catch (error) {
     console.warn("supabase mindmap cache write failed", error);
   }
@@ -134,9 +140,9 @@ export async function getMetadataCache(
       .select("title, channel_title, duration_seconds")
       .eq("video_id", videoId)
       .maybeSingle();
-    if (!data) return null;
+    if (!data || !data.title) return null;
     return {
-      title: typeof data.title === "string" ? data.title : "",
+      title: data.title as string,
       channelTitle:
         typeof data.channel_title === "string" ? data.channel_title : "",
       durationSeconds:
@@ -153,16 +159,21 @@ export async function setMetadataCache(
   metadata: VideoMetadata
 ): Promise<void> {
   try {
+    if (!metadata.title) return;
     const supabase = createServiceRoleClient();
-    await supabase.from("video_metadata").upsert(
-      {
-        video_id: videoId,
-        title: metadata.title,
-        channel_title: metadata.channelTitle,
-        duration_seconds: metadata.durationSeconds,
-      },
-      { onConflict: "video_id", ignoreDuplicates: true }
-    );
+    const { data: existing } = await supabase
+      .from("video_metadata")
+      .select("video_id")
+      .eq("video_id", videoId)
+      .maybeSingle();
+    if (existing) return;
+    const { error } = await supabase.from("video_metadata").insert({
+      video_id: videoId,
+      title: metadata.title,
+      channel_title: metadata.channelTitle,
+      duration_seconds: metadata.durationSeconds,
+    });
+    if (error) console.warn("supabase metadata cache write failed", error);
   } catch (error) {
     console.warn("supabase metadata cache write failed", error);
   }
