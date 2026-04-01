@@ -39,8 +39,9 @@ export interface FlowEdge {
 }
 
 const NODE_WIDTH = 300;
-const X_SPACING = 440;
-const PADDING = 48;
+const L1_NODE_WIDTH = 160;
+const X_SPACING = 350;
+const PADDING = 40;
 
 const LABEL_LINE_HEIGHT = 20;
 const TIMESTAMP_HEIGHT = 20;
@@ -64,6 +65,11 @@ function estimateNodeHeight(flowNode: {
     TIMESTAMP_HEIGHT +
     32
   );
+}
+
+function nodeWidthByDepth(depth: number): number {
+  if (depth === 1) return L1_NODE_WIDTH;
+  return NODE_WIDTH;
 }
 
 export function treeToFlow(root: MindMapTreeNode): {
@@ -99,7 +105,7 @@ export function treeToFlow(root: MindMapTreeNode): {
         data: flowDataBase,
         position: { x: depth * X_SPACING, y: globalY },
         type: "mindmap",
-        style: { width: NODE_WIDTH },
+        style: { width: nodeWidthByDepth(depth) },
       });
       globalY += h + PADDING;
     } else {
@@ -131,7 +137,7 @@ export function treeToFlow(root: MindMapTreeNode): {
           y: (firstChildY + lastChildY) / 2 - selfH / 2,
         },
         type: "mindmap",
-        style: { width: NODE_WIDTH },
+        style: { width: nodeWidthByDepth(depth) },
       });
     }
   }

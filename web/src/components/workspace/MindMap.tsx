@@ -94,7 +94,8 @@ function MindMapCanvas({
   onDownloadImage,
   onDownloadMarkdown,
 }: Omit<MindMapProps, "loading">) {
-  const { getNodes } = useReactFlow();
+  const reactFlowInstance = useReactFlow();
+  const { getNodes } = reactFlowInstance;
   const [rawNodes, setRawNodes] = React.useState<FlowNode[]>(
     () => initialNodes ?? []
   );
@@ -142,6 +143,7 @@ function MindMapCanvas({
 
   const [nodes, setNodes, onNodesChange] = useNodesState(visibleNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(visibleEdges);
+  const [showGuide, setShowGuide] = React.useState(true);
 
   React.useEffect(() => {
     setNodes(visibleNodes);
@@ -153,8 +155,26 @@ function MindMapCanvas({
 
   const handleNodeClick = React.useCallback(
     (_: React.MouseEvent, node: Node<MindMapNodeData>) => {
-      const sec = timestampToSeconds(node.data.timestamp);
-      if (sec !== null) onNodeClick?.(sec);
+      const childIds = edges.filter((e) => e.source === node.id).map((e) => e.target);
+      const targetNodes = nodes.filter(
+        (n) => n.id === node.id || childIds.includes(n.id)
+      );
+      reactFlowInstance.fitView({
+        nodes: targetNodes,
+        padding: 0.15,
+        duration: 400,
+      });
+    },
+    [edges, nodes, reactFlowInstance]
+  );
+
+  const handleNodeDoubleClick = React.useCallback(
+    (_: React.MouseEvent, node: Node<MindMapNodeData>) => {
+      const sec =
+        typeof node.data.timestampSeconds === "number"
+          ? node.data.timestampSeconds
+          : timestampToSeconds(node.data.timestamp);
+      if (sec != null) onNodeClick?.(sec);
     },
     [onNodeClick]
   );
@@ -235,6 +255,13 @@ function MindMapCanvas({
     onDownloadMarkdown?.(handleDownloadMarkdown);
   }, [onDownloadMarkdown, handleDownloadMarkdown]);
 
+  React.useEffect(() => {
+    if (visibleNodes.length === 0) return;
+    requestAnimationFrame(() => {
+      reactFlowInstance.fitView({ padding: 0.12, duration: 400 });
+    });
+  }, [visibleNodes, visibleEdges, reactFlowInstance]);
+
   return (
     <div ref={reactFlowWrapperRef} className="h-full w-full">
       <ReactFlow
@@ -243,6 +270,8 @@ function MindMapCanvas({
         onNodesChange={onNodesChange as OnNodesChange}
         onEdgesChange={onEdgesChange as OnEdgesChange}
         onNodeClick={handleNodeClick}
+        onNodeDoubleClick={handleNodeDoubleClick}
+        onPaneClick={() => setShowGuide(false)}
         nodeTypes={nodeTypes}
         connectionLineType={ConnectionLineType.SmoothStep}
         defaultEdgeOptions={{
@@ -254,11 +283,29 @@ function MindMapCanvas({
         maxZoom={1.5}
         defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
         className="h-full w-full"
-        style={{ width: "100%", height: "100%", overflow: "hidden" }}
+        style={{ width: "100%", height: "100%", overflow: "hidden", backgroundColor: "#F5F4F1" }}
       >
         <Background />
         <Controls showInteractive={false} />
       </ReactFlow>
+      {showGuide ? (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[rgba(0,0,0,0.45)] backdrop-blur-[2px]">
+          <div className="rounded-xl bg-white px-6 py-4 text-center">
+            <p className="text-[11px] leading-8 text-[#555555]" style={{ fontFamily: '"IBM Plex Mono", monospace' }}>
+              单击节点 → 聚焦放大
+            </p>
+            <p className="text-[11px] leading-8 text-[#555555]" style={{ fontFamily: '"IBM Plex Mono", monospace' }}>
+              双击节点 → 跳转视频
+            </p>
+            <p className="text-[11px] leading-8 text-[#555555]" style={{ fontFamily: '"IBM Plex Mono", monospace' }}>
+              拖动画布 → 平移浏览
+            </p>
+            <p className="mt-1 text-[12px] text-[#999999]" style={{ fontFamily: '"DM Sans", sans-serif' }}>
+              点击任意处开始
+            </p>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

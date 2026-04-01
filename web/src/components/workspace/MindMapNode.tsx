@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 export type MindMapNodeData = {
   label: string;
   timestamp?: string;
+  timestampSeconds?: number;
   endTimestamp?: string;
   important?: boolean;
   hasChildren?: boolean;
@@ -17,26 +18,13 @@ export type MindMapNodeData = {
   depth?: number;
 };
 
-/** depth 0~4+ 样式（索引用 Math.min(depth, 4)） */
-export const DEPTH_CONFIG = [
-  { bg: "#1e293b", text: "#ffffff", border: "#334155" },
-  { bg: "#4f46e5", text: "#ffffff", border: "#4338ca" },
-  { bg: "#ede9fe", text: "#4c1d95", border: "#c4b5fd" },
-  { bg: "#f8fafc", text: "#1e293b", border: "#e2e8f0" },
-  { bg: "#ffffff", text: "#64748b", border: "#e2e8f0" },
-] as const;
-
 function timeLabelDepth1(
   timestamp?: string,
   endTimestamp?: string
 ): React.ReactNode {
   const dur = formatDuration(timestamp, endTimestamp);
   if (!dur) return null;
-  return (
-    <span className="text-[10px] opacity-90">
-      ⏱ {dur}
-    </span>
-  );
+  return <span>{dur}</span>;
 }
 
 function timeLabelDepth2Plus(
@@ -47,28 +35,69 @@ function timeLabelDepth2Plus(
   const te = endTimestamp?.trim();
   if (!ts && !te) return null;
   if (ts && te) {
-    return (
-      <span className="text-[10px] opacity-90">
-        ▶ {ts} ~ {te}
-      </span>
-    );
+    return <span>{ts} ~ {te}</span>;
   }
-  return (
-    <span className="text-[10px] opacity-90">
-      ▶ {ts ?? te}
-    </span>
-  );
+  return <span>{ts ?? te}</span>;
 }
 
 export function MindMapNode({ data, selected }: NodeProps<MindMapNodeData>) {
   const depth = data.depth ?? 0;
-  const cfg = DEPTH_CONFIG[Math.min(depth, 4)];
+  const level = Math.max(0, Math.min(depth, 3));
 
   const showDetail = Boolean(data.detail?.trim());
   const showTimeDepth1 = depth === 1;
   const showTimeDepth2 = depth >= 2;
+  const l2TimeText =
+    level === 2
+      ? (data.timestamp?.trim() ??
+        (typeof data.timestampSeconds === "number"
+          ? String(data.timestampSeconds)
+          : ""))
+      : "";
 
-  const borderColor = selected ? "#f97316" : cfg.border;
+  const nodeClassName = cn(
+    "box-border transition-colors",
+    level === 0 && "rounded-[8px] px-[14px] py-[10px] shadow-[0_2px_10px_rgba(0,0,0,0.15)]",
+    level === 1 && "rounded-[6px] border px-[12px] py-[7px]",
+    level === 2 && "max-w-[300px] rounded-[5px] border px-[11px] pb-[8px] pt-[6px] hover:bg-[#EAEAE8]",
+    level >= 3 && "max-w-[280px] rounded-[4px] border px-[10px] py-[5px] hover:bg-[#F5F5F5]"
+  );
+
+  const nodeStyle: React.CSSProperties =
+    level === 0
+      ? {
+          backgroundColor: "#111111",
+          color: "#FBFBFB",
+          border: selected ? "1px solid #A8882A" : "1px solid transparent",
+        }
+      : level === 1
+        ? {
+            backgroundColor: "#F0E8CC",
+            borderColor:
+              data.important
+                ? "rgba(168,136,42,0.5)"
+                : selected
+                  ? "#A8882A"
+                  : "#C9A84C",
+            color: "#3D2E00",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+          }
+        : level === 2
+          ? {
+              backgroundColor: "#EAEAE6",
+              borderColor: selected ? "#A8882A" : "#C8C8C4",
+              color: "#252525",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+            }
+          : {
+              backgroundColor: "#FBFBFB",
+              borderColor: selected ? "#A8882A" : "#E2E2E2",
+              color: "#3A3A3A",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+            };
+
+  const handleColor =
+    level === 0 ? "#A8882A" : level === 1 ? "#A8882A" : level === 2 ? "#DCDCDA" : "#E2E2E2";
 
   return (
     <>
@@ -77,29 +106,28 @@ export function MindMapNode({ data, selected }: NodeProps<MindMapNodeData>) {
         position={Position.Left}
         id="left"
         className="!h-1.5 !w-1.5 !border-2"
-        style={{ background: cfg.border }}
+        style={{ background: handleColor }}
       />
-      <div
-        className="w-[300px] box-border rounded-lg border-2 px-3 py-2 shadow-sm transition-colors"
-        style={{
-          backgroundColor: cfg.bg,
-          color: cfg.text,
-          borderColor: borderColor,
-        }}
-      >
+      <div className={nodeClassName} style={nodeStyle}>
         <div className="flex items-start justify-between gap-1">
           <div
             className={cn(
-              "min-w-0 flex-1 text-[13px] leading-snug",
-              data.important && "font-bold"
+              "min-w-0 flex-1 leading-snug",
+              level <= 1 && "text-[13px] font-medium",
+              level === 2 && "text-[12px] font-medium",
+              level >= 3 && "text-[12px] font-normal"
             )}
+            style={{
+              fontFamily:
+                level <= 1
+                  ? '"EB Garamond", serif'
+                  : '"DM Sans", sans-serif',
+            }}
           >
-            {data.label}
-            {data.important ? (
-              <span className="ml-0.5 text-[11px] font-normal opacity-90">
-                ★
-              </span>
+            {level === 2 && data.important ? (
+              <span className="mr-[5px] inline-block h-[5px] w-[5px] rounded-full bg-[#A8882A]" />
             ) : null}
+            {data.label}
           </div>
           {data.hasChildren ? (
             <button
@@ -109,7 +137,7 @@ export function MindMapNode({ data, selected }: NodeProps<MindMapNodeData>) {
                 data.onToggle?.();
               }}
               className="shrink-0 rounded px-0.5 text-sm leading-none opacity-80 hover:opacity-100"
-              style={{ color: cfg.text }}
+              style={{ color: "currentColor" }}
               aria-expanded={!data.collapsed}
               aria-label={data.collapsed ? "展开子节点" : "折叠子节点"}
             >
@@ -118,25 +146,57 @@ export function MindMapNode({ data, selected }: NodeProps<MindMapNodeData>) {
           ) : null}
         </div>
 
-        {showDetail && (
+        {showDetail && level === 0 && (
           <div
-            className="mt-1.5 text-[11px] leading-[1.5]"
-            style={{ color: cfg.text, opacity: 0.92 }}
+            className="mt-1 text-[9px] leading-[1.3]"
+            style={{
+              fontFamily: '"IBM Plex Mono", monospace',
+              color: "rgba(251,251,251,0.45)",
+            }}
           >
             {data.detail}
           </div>
         )}
 
-        {depth === 0 ? null : (
+        {showDetail && level === 2 && (
           <div
-            className="mt-1.5 text-right"
-            style={{ color: cfg.text, opacity: 0.85 }}
+            className="mt-[3px] text-[11px] leading-[1.55] text-[#444444]"
+            style={{ fontFamily: '"DM Sans", sans-serif' }}
           >
-            {showTimeDepth1
-              ? timeLabelDepth1(data.timestamp, data.endTimestamp)
-              : showTimeDepth2
-                ? timeLabelDepth2Plus(data.timestamp, data.endTimestamp)
-                : null}
+            {data.detail}
+          </div>
+        )}
+
+        {level >= 3 && data.detail && (
+          <div
+            style={{
+              fontSize: "11px",
+              color: "#555555",
+              lineHeight: 1.55,
+              marginTop: "3px",
+            }}
+          >
+            {data.detail}
+          </div>
+        )}
+
+        {level === 0 ? null : (
+          <div
+            className={cn(
+              "text-[9px]",
+              level === 1 && "mt-1 ml-auto text-right text-[rgba(168,136,42,0.5)]",
+              level === 2 && "mt-[4px] text-left text-[#AAAAAA]",
+              level >= 3 && "mt-1 text-right text-[#AAAAAA]"
+            )}
+            style={{ fontFamily: '"IBM Plex Mono", monospace' }}
+          >
+            {level === 2
+              ? l2TimeText
+              : showTimeDepth1
+                ? timeLabelDepth1(data.timestamp, data.endTimestamp)
+                : showTimeDepth2
+                  ? timeLabelDepth2Plus(data.timestamp, data.endTimestamp)
+                  : null}
           </div>
         )}
       </div>
@@ -145,7 +205,7 @@ export function MindMapNode({ data, selected }: NodeProps<MindMapNodeData>) {
         position={Position.Right}
         id="right"
         className="!h-1.5 !w-1.5 !border-2"
-        style={{ background: cfg.border }}
+        style={{ background: handleColor }}
       />
     </>
   );
