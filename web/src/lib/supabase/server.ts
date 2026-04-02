@@ -1,8 +1,30 @@
 import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { NextResponse, type NextRequest } from 'next/server';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+/** App Router route handlers / server actions: read session from cookies */
+export async function createRouteHandlerSupabaseClient() {
+  const cookieStore = await cookies();
+  return createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        } catch {
+          /* set may be no-op outside mutable response context */
+        }
+      },
+    },
+  });
+}
 
 export function createClient(request: NextRequest, response: NextResponse) {
   return createServerClient(supabaseUrl, supabaseAnonKey, {

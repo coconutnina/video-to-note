@@ -3,6 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 
+import AuthModal from "@/components/auth/AuthModal";
+import { createClient } from "@/lib/supabase/client";
 import { getVideoInfo } from "@/lib/video-info";
 import { getYouTubeVideoId } from "@/lib/youtube";
 import { getCachedMindmap, setCachedMindmap } from "@/lib/workspace-cache";
@@ -80,6 +82,8 @@ function buildTimedWindows(
   return out;
 }
 
+const GUEST_VIDEO_KEY = "vtn:guest_video_id";
+
 function LoadingClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -99,12 +103,22 @@ function LoadingClient() {
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isTimerRunning, setIsTimerRunning] = React.useState(false);
   const [retryTick, setRetryTick] = React.useState(0);
+  const [showAuthModal, setShowAuthModal] = React.useState(false);
+  const authResolveRef = React.useRef<(() => void) | null>(null);
   const hasNavigatedRef = React.useRef(false);
   const videoTitleRef = React.useRef("");
   const routerRef = React.useRef(router);
   routerRef.current = router;
   const canonicalUrlRef = React.useRef(canonicalUrl);
   canonicalUrlRef.current = canonicalUrl;
+  const supabase = React.useMemo(() => createClient(), []);
+
+  const releaseAuthWait = React.useCallback(() => {
+    setShowAuthModal(false);
+    const r = authResolveRef.current;
+    authResolveRef.current = null;
+    r?.();
+  }, []);
 
   React.useEffect(() => {
     if (!videoId) {
@@ -145,6 +159,74 @@ function LoadingClient() {
     const run = async () => {
       try {
         setErrorMessage(null);
+
+        let isCachedVideo = false;
+        let billingSession: Awaited<
+          ReturnType<typeof supabase.auth.getSession>
+        >["data"]["session"] | null = null;
+
+        const {
+          data: { session: initialSession },
+        } = await supabase.auth.getSession();
+
+        if (!initialSession) {
+          const guestVideoId =
+            typeof window !== "undefined" ? localStorage.getItem(GUEST_VIDEO_KEY) : null;
+          if (guestVideoId && guestVideoId !== videoId) {
+            setShowAuthModal(true);
+            await new Promise<void>((resolve) => {
+              authResolveRef.current = resolve;
+            });
+            const {
+              data: { session: newSession },
+            } = await supabase.auth.getSession();
+            if (!newSession) {
+              return;
+            }
+            billingSession = newSession;
+            const quotaRes = await fetch(
+              `/api/auth/check-quota?videoId=${encodeURIComponent(videoId)}`,
+              { credentials: "include", signal }
+            );
+            const quota = (await quotaRes.json().catch(() => ({}))) as {
+              allowed?: boolean;
+              isCached?: boolean;
+            };
+            if (quotaRes.status === 401) {
+              setErrorMessage("登录状态已失效，请刷新页面后重试");
+              return;
+            }
+            if (!quota.allowed) {
+              setErrorMessage("本月配额已用完，请等待下个周期");
+              return;
+            }
+            isCachedVideo = !!quota.isCached;
+          } else if (typeof window !== "undefined") {
+            localStorage.setItem(GUEST_VIDEO_KEY, videoId);
+          }
+        } else {
+          billingSession = initialSession;
+          const quotaRes = await fetch(
+            `/api/auth/check-quota?videoId=${encodeURIComponent(videoId)}`,
+            { credentials: "include", signal }
+          );
+          const quota = (await quotaRes.json().catch(() => ({}))) as {
+            allowed?: boolean;
+            isCached?: boolean;
+          };
+          if (quotaRes.status === 401) {
+            setErrorMessage("登录状态已失效，请刷新页面后重试");
+            return;
+          }
+          if (!quota.allowed) {
+            setErrorMessage("本月配额已用完，请等待下个周期或联系管理员");
+            return;
+          }
+          isCachedVideo = !!quota.isCached;
+        }
+
+        if (signal.aborted) return;
+
         setCurrentStep(1);
         setProgress(0);
         setElapsedSeconds(0);
@@ -260,6 +342,16 @@ function LoadingClient() {
 
         await new Promise((resolve) => setTimeout(resolve, 800));
         if (signal.aborted || hasNavigatedRef.current) return;
+
+        if (billingSession && !isCachedVideo) {
+          void fetch("/api/auth/increment-usage", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ videoId }),
+            credentials: "include",
+          }).catch(() => {});
+        }
+
         hasNavigatedRef.current = true;
         routerRef.current.push(
           `/workspace?videoId=${encodeURIComponent(videoId)}&url=${encodeURIComponent(canonicalUrlRef.current)}`
@@ -432,6 +524,13 @@ function LoadingClient() {
           </svg>
         </a>
       </footer>
+
+      <AuthModal
+        open={showAuthModal}
+        onClose={releaseAuthWait}
+        initialTab="login"
+        onAuthSuccess={releaseAuthWait}
+      />
     </div>
   );
 }

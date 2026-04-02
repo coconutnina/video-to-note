@@ -185,6 +185,25 @@ export default function HomePage() {
     return () => window.removeEventListener("mousedown", handleClickOutside);
   }, [menuOpen]);
 
+  /** 测试用：首页访问 `/?vtnClearStorage=1` 清空本域 localStorage，并去掉该参数 */
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("vtnClearStorage") !== "1") return;
+    try {
+      localStorage.clear();
+    } catch {
+      /* private mode / quota */
+    }
+    sp.delete("vtnClearStorage");
+    const qs = sp.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`
+    );
+  }, []);
+
   function validate(current: string): string | null {
     const trimmed = current.trim();
     if (!trimmed) {

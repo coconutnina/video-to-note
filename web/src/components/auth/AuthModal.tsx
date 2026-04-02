@@ -8,6 +8,8 @@ type AuthModalProps = {
   open: boolean;
   onClose: () => void;
   onAuthSuccess: (profile?: { nickname?: string; avatar_id?: number }) => Promise<void> | void;
+  /** When the modal opens, show this tab first (default: login). */
+  initialTab?: "login" | "register";
 };
 
 const AVATAR_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
@@ -26,9 +28,14 @@ type RegisterState = {
   inviteCode: string;
 };
 
-export default function AuthModal({ open, onClose, onAuthSuccess }: AuthModalProps) {
+export default function AuthModal({
+  open,
+  onClose,
+  onAuthSuccess,
+  initialTab = "login",
+}: AuthModalProps) {
   const supabase = React.useMemo(() => createClient(), []);
-  const [tab, setTab] = React.useState<"login" | "register">("login");
+  const [tab, setTab] = React.useState<"login" | "register">(initialTab);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -59,6 +66,11 @@ export default function AuthModal({ open, onClose, onAuthSuccess }: AuthModalPro
     if (!open) return;
     setError(null);
   }, [open, tab]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setTab(initialTab);
+  }, [open, initialTab]);
 
   if (!open) return null;
 
