@@ -282,6 +282,7 @@ function WorkspaceClient() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            videoId: videoId ?? "",
             transcript: segments,
             videoTitle:
               videoTitleRef.current !== "加载中..."
@@ -327,113 +328,130 @@ function WorkspaceClient() {
       }
 
       if (mergedLineCount > 0) {
-        const missingIndices: number[] = [];
-        for (let i = 0; i < mergedLineCount; i++) {
-          if (translationsRef.current[i] === undefined) {
-            missingIndices.push(i);
-          }
-        }
-
-        // 缓存已完整覆盖，跳过翻译 API
-        if (missingIndices.length === 0) {
-          return;
-        }
-
-        const linesToTranslate = missingIndices.map((i) => lines[i]);
-
-        const splitIntoBatches = (
-          subs: SubtitleLine[],
-          targetBatchSize = 20
-        ) => {
-          const batches: SubtitleLine[][] = [];
-          let current: SubtitleLine[] = [];
-          for (let i = 0; i < subs.length; i++) {
-            const item = subs[i];
-            current.push(item);
-            if (current.length >= targetBatchSize) {
-              batches.push(current);
-              current = [];
-            }
-          }
-          if (current.length > 0) batches.push(current);
-          return batches;
-        };
-
-        const batches = splitIntoBatches(linesToTranslate, 20);
-
-        const fetchBatchTranslations = async (
-          batch: SubtitleLine[],
-          batchStart: number
-        ) => {
-          const res = await fetch("/api/translate-subtitles", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              subtitles: batch.map((line, localIdx) => ({
-                id: missingIndices[batchStart + localIdx],
-                text: line.en,
-              })),
-            }),
-          });
-          if (!res.ok) {
-            throw new Error("翻译接口错误");
-          }
-          const data = (await res.json().catch(() => ({}))) as {
-            translations?: { id?: number; translated?: string }[];
-          };
-          return data.translations ?? [];
-        };
-
-        const applyBatchTranslations = (
-          batchStart: number,
-          batchLength: number,
-          items: { id?: number; translated?: string }[]
-        ) => {
-          setTranslations((prev) => {
-            const next = { ...prev };
-            items.forEach((item, index) => {
-              const id =
-                typeof item.id === "number" ? item.id : batchStart + index;
-              next[id] = item.translated ?? "";
-            });
-            // 补全本批次内未返回的 id，防止永远停在“翻译中...”
-            for (let i = 0; i < batchLength; i++) {
-              const id = batchStart + i;
-              if (next[id] === undefined) next[id] = "";
-            }
-            translationsRef.current = next;
-            setCachedTranslations(videoId, translationsRef.current);
-            return next;
-          });
-        };
-
-        const markBatchFailed = (batchStart: number, batchLength: number) => {
-          if (batchLength <= 0) return;
-          setTranslations((prev) => {
-            const next = { ...prev };
-            for (let i = 0; i < batchLength; i++) {
-              next[batchStart + i] = "";
-            }
-            translationsRef.current = next;
-            return next;
-          });
-        };
-
-        let startIndex = 0;
-        const batchPromiseConfigs = batches.map((batch) => {
-          const currentStart = startIndex;
-          startIndex += batch.length;
-          return {
-            batch,
-            startIndex: currentStart,
-            batchLength: batch.length,
-          };
-        });
-
-        const CONCURRENCY = 3;
-        const queue = [...batchPromiseConfigs];
-
         (async () => {
+          if (!cachedTranslations) {
+            const remoteRes = await fetch(
+              `/api/cache/get-translations?videoId=${encodeURIComponent(videoId)}`
+            ).catch(() => null);
+            const remoteData = (await remoteRes?.json().catch(() => ({}))) as {
+              translations?: Record<number, string> | null;
+            };
+            if (
+              remoteData?.translations &&
+              typeof remoteData.translations === "object"
+            ) {
+              translationsRef.current = { ...remoteData.translations };
+              setTranslations({ ...remoteData.translations });
+              setCachedTranslations(videoId, { ...remoteData.translations });
+            }
+          }
+
+          const missingIndices: number[] = [];
+          for (let i = 0; i < mergedLineCount; i++) {
+            if (translationsRef.current[i] === undefined) {
+              missingIndices.push(i);
+            }
+          }
+
+          // 缓存已完整覆盖，跳过翻译 API
+          if (missingIndices.length === 0) {
+            return;
+          }
+
+          const linesToTranslate = missingIndices.map((i) => lines[i]);
+
+          const splitIntoBatches = (
+            subs: SubtitleLine[],
+            targetBatchSize = 20
+          ) => {
+            const batches: SubtitleLine[][] = [];
+            let current: SubtitleLine[] = [];
+            for (let i = 0; i < subs.length; i++) {
+              const item = subs[i];
+              current.push(item);
+              if (current.length >= targetBatchSize) {
+                batches.push(current);
+                current = [];
+              }
+            }
+            if (current.length > 0) batches.push(current);
+            return batches;
+          };
+
+          const batches = splitIntoBatches(linesToTranslate, 20);
+
+          const fetchBatchTranslations = async (
+            batch: SubtitleLine[],
+            batchStart: number
+          ) => {
+            const res = await fetch("/api/translate-subtitles", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                subtitles: batch.map((line, localIdx) => ({
+                  id: missingIndices[batchStart + localIdx],
+                  text: line.en,
+                })),
+              }),
+            });
+            if (!res.ok) {
+              throw new Error("翻译接口错误");
+            }
+            const data = (await res.json().catch(() => ({}))) as {
+              translations?: { id?: number; translated?: string }[];
+            };
+            return data.translations ?? [];
+          };
+
+          const applyBatchTranslations = (
+            batchStart: number,
+            batchLength: number,
+            items: { id?: number; translated?: string }[]
+          ) => {
+            setTranslations((prev) => {
+              const next = { ...prev };
+              items.forEach((item, index) => {
+                const id =
+                  typeof item.id === "number" ? item.id : batchStart + index;
+                next[id] = item.translated ?? "";
+              });
+              // 补全本批次内未返回的 id，防止永远停在“翻译中...”
+              for (let i = 0; i < batchLength; i++) {
+                const id = batchStart + i;
+                if (next[id] === undefined) next[id] = "";
+              }
+              translationsRef.current = next;
+              setCachedTranslations(videoId, translationsRef.current);
+              return next;
+            });
+          };
+
+          const markBatchFailed = (batchStart: number, batchLength: number) => {
+            if (batchLength <= 0) return;
+            setTranslations((prev) => {
+              const next = { ...prev };
+              for (let i = 0; i < batchLength; i++) {
+                next[batchStart + i] = "";
+              }
+              translationsRef.current = next;
+              return next;
+            });
+          };
+
+          let startIndex = 0;
+          const batchPromiseConfigs = batches.map((batch) => {
+            const currentStart = startIndex;
+            startIndex += batch.length;
+            return {
+              batch,
+              startIndex: currentStart,
+              batchLength: batch.length,
+            };
+          });
+
+          const CONCURRENCY = 3;
+          const queue = [...batchPromiseConfigs];
+
           const workers = Array.from({ length: CONCURRENCY }, async () => {
             while (queue.length > 0) {
               const item = queue.shift()!;

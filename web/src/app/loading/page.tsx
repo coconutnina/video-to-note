@@ -289,6 +289,7 @@ function LoadingClient() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              videoId: videoId ?? "",
               transcript,
               videoTitle: videoTitleRef.current.trim() || undefined,
             }),
