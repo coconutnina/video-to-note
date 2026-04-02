@@ -5,7 +5,7 @@ import { getTranslationCache } from "@/lib/supabase-cache";
 
 export const maxDuration = 60;
 
-const BATCH_SIZE = 20;
+const BATCH_SIZE = 10;
 
 interface SubtitleItem {
   id: number;
@@ -22,10 +22,8 @@ function translationRecordToArray(
 }
 
 const systemPrompt = `你是专业字幕翻译员。
-输入是 JSON 数组，每条是一个完整句子。
-将每条翻译成自然流畅的中文。
-输出 JSON 数组，每个元素格式：{"id": 原id, "translated": "译文"}
-条数必须和输入完全一致。只返回 JSON，不要其他内容。`;
+输入是编号的英文句子列表，将每句翻译成自然流畅的中文。
+输出格式完全一致：每行 "{序号}. {译文}"，行数必须和输入完全相同，不能合并或跳过任何一行。只输出翻译结果，不要其他内容。`;
 
 async function translateBatch(
   items: SubtitleItem[],
@@ -35,7 +33,7 @@ async function translateBatch(
     return [];
   }
 
-  const userPayload = items.map((x) => ({ id: x.id, text: x.text }));
+  const userPayload = items.map((x, idx) => `${idx + 1}. ${x.text}`).join("\n");
 
   let content: string;
   try {
@@ -45,7 +43,7 @@ async function translateBatch(
         { role: "system", content: systemPrompt },
         {
           role: "user",
-          content: JSON.stringify(userPayload),
+          content: userPayload,
         },
       ],
       max_tokens: 8000,
@@ -55,81 +53,29 @@ async function translateBatch(
     throw new Error("翻译请求失败");
   }
 
-  const raw = (content ?? "")
-    .replace(/```json\n?|\n?```/g, "")
-    .trim();
-
-  // 修复 JSON 字符串值内的非法字符
-  // 策略：仅清理 translated 字段的值内容，不影响其它字段
-  const fixedRaw = raw.replace(
-    /"translated"\s*:\s*"([\s\S]*?)(?<!\\)"/g,
-    (match, value: string) => {
-      const cleaned = value
-        .replace(/\\/g, "\\\\") // 先转义已有的反斜杠
-        .replace(/"/g, '\\"') // 转义引号
-        .replace(/\n/g, "\\n") // 转义换行
-        .replace(/\r/g, "\\r") // 转义回车
-        .replace(/\t/g, "\\t") // 转义制表符
-        .replace(
-          /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,
-          ""
-        ); // 删除其他控制字符
-      return `"translated": "${cleaned}"`;
-    }
-  );
+  const raw = (content ?? "").trim();
   if (!raw) {
     console.warn("DeepSeek 翻译结果为空，已用空字符串补齐");
     return items.map((i) => ({ id: i.id, translated: "" }));
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(fixedRaw);
-  } catch (e) {
-    console.warn("JSON 解析失败，尝试逐条提取:", e);
-    const fallback: { id: number; translated: string }[] = [];
-    const pattern =
-      /"id"\s*:\s*(\d+)\s*,\s*"translated"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
-    for (const m of fixedRaw.matchAll(pattern)) {
-      fallback.push({ id: Number(m[1]), translated: m[2] });
-    }
-    if (fallback.length > 0) {
-      const map = new Map(fallback.map((f) => [f.id, f.translated]));
-      return items.map((i) => ({
-        id: i.id,
-        translated: map.get(i.id) ?? "",
-      }));
-    }
-    return items.map((i) => ({ id: i.id, translated: "" }));
-  }
-
-  if (!Array.isArray(parsed)) {
-    console.warn("翻译结果非数组，已按 id 补空");
-    return items.map((i) => ({ id: i.id, translated: "" }));
-  }
-
   const byId = new Map<number, string>();
-  for (const el of parsed) {
-    if (
-      el != null &&
-      typeof el === "object" &&
-      typeof (el as { id?: unknown }).id === "number" &&
-      typeof (el as { translated?: unknown }).translated === "string"
-    ) {
-      byId.set(
-        (el as { id: number }).id,
-        (el as { translated: string }).translated
-      );
-    }
+  for (const item of items) {
+    byId.set(item.id, "");
   }
 
-  if (byId.size !== items.length) {
-    console.warn(
-      "翻译结果条数与输入不一致，已按 id 截断或补空:",
-      byId.size,
-      "vs",
-      items.length
-    );
+  const lines = raw.split(/\r?\n/);
+  for (const line of lines) {
+    const match = line.match(/^(\d+)\.\s*(.+)$/);
+    if (!match) {
+      continue;
+    }
+    const localIndex = Number(match[1]);
+    if (!Number.isFinite(localIndex) || localIndex < 1 || localIndex > items.length) {
+      continue;
+    }
+    const translated = match[2];
+    byId.set(items[localIndex - 1].id, translated);
   }
 
   return items.map((it) => ({
@@ -181,6 +127,32 @@ export async function POST(request: NextRequest) {
       }));
       const batchTranslations = await translateBatch(items, apiKey);
       allTranslations.push(...batchTranslations);
+    }
+
+    const missingItems: SubtitleItem[] = allTranslations
+      .filter((x) => x.translated === "")
+      .map((x) => ({
+        id: x.id,
+        text:
+          (
+            subtitles.find(
+              (s, idx) =>
+                (typeof s.id === "number" ? s.id : idx) === x.id
+            )?.text as string
+          ) ?? "",
+      }));
+    if (missingItems.length > 0) {
+      try {
+        const retryTranslations = await translateBatch(missingItems, apiKey);
+        const retryMap = new Map(retryTranslations.map((x) => [x.id, x.translated]));
+        for (const item of allTranslations) {
+          if (retryMap.has(item.id)) {
+            item.translated = retryMap.get(item.id) ?? "";
+          }
+        }
+      } catch {
+        // 重试失败时保留原有空字符串
+      }
     }
 
     const result = { translations: allTranslations };
