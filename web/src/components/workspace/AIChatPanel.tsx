@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,52 +39,78 @@ const WELCOME_MESSAGE: ChatMessage = {
   content: "你好！我已经读完这个视频，有什么想问的？",
 };
 
-const TIMESTAMP_REGEX = /\[(\d{2}:\d{2}(?::\d{2})?)\]/g;
+function MarkdownMessage({ content, onSeekTo }: { content: string; onSeekTo?: (time: string) => void }) {
+  // 第一步：把孤立的时间戳行合并到上一行
+  const cleaned = content
+    .replace(/\n(\[\d{1,3}:\d{2}(?:[,~]\s*\d{1,3}:\d{2})*\])\n\s*([。，、.,])/g, '$2 $1')
+    .replace(/\n(\[\d{1,3}:\d{2}(?:[,~]\s*\d{1,3}:\d{2})*\])/g, ' $1');
 
-function parseContentWithTimestamps(
-  content: string,
-  onSeekTo?: (time: string) => void
-): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  const re = new RegExp(TIMESTAMP_REGEX.source, "g");
-  while ((match = re.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(
-        <React.Fragment key={`t-${lastIndex}`}>
-          {content.slice(lastIndex, match.index)}
-        </React.Fragment>
-      );
+  const merged = cleaned.replace(
+    /\[(\d{1,3}:\d{2})\]((?:\s*\[(\d{1,3}:\d{2})\])+)/g,
+    (_full, first, rest) => {
+      const times = [first, ...Array.from(rest.matchAll(/\[(\d{1,3}:\d{2})\]/g), (m: RegExpMatchArray) => m[1])];
+      return `[${times[0]} ~ ${times[times.length - 1]}]`;
     }
-    const time = match[1];
-    nodes.push(
-      onSeekTo ? (
-        <button
-          key={`ts-${match.index}`}
-          type="button"
-          onClick={() => onSeekTo(time)}
-          className="mx-0.5 inline-block cursor-pointer rounded-[3px] border border-[rgba(168,136,42,0.22)] bg-[rgba(168,136,42,0.07)] px-[5px] py-[1px] font-mono text-[10.5px] text-[#A8882A]"
-        >
-          {match[0]}
-        </button>
-      ) : (
-        <span
-          key={`ts-${match.index}`}
-          className="mx-0.5 inline-block cursor-pointer rounded-[3px] border border-[rgba(168,136,42,0.22)] bg-[rgba(168,136,42,0.07)] px-[5px] py-[1px] font-mono text-[10.5px] text-[#A8882A]"
-        >
-          {match[0]}
-        </span>
-      )
+  );
+
+  // 第二步：把所有时间戳格式转换为 Markdown 行内代码 `%%TS:MM:SS%%`
+  // 这样 ReactMarkdown 会把它保持在行内，不会另起段落
+  const processed = merged
+    .replace(
+      /\[((\d{1,3}:\d{2})(?:\s*,\s*\d{1,3}:\d{2})*)\]/g,
+      (_full, list: string) =>
+        list.split(/\s*,\s*/).map(t => `\`%%TS:${t.trim()}%%\``).join(' ')
+    )
+    .replace(
+      /\[(\d{1,3}:\d{2})\s*~\s*(\d{1,3}:\d{2})\]/g,
+      (_full, s: string, e: string) => `\`%%TS:${s}~${e}%%\``
     );
-    lastIndex = re.lastIndex;
-  }
-  if (lastIndex < content.length) {
-    nodes.push(
-      <React.Fragment key={`t-${lastIndex}`}>{content.slice(lastIndex)}</React.Fragment>
-    );
-  }
-  return nodes.length > 0 ? nodes : [content];
+
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => <p className="mb-1.5 text-[13px] leading-relaxed">{children}</p>,
+        h1: ({ children }) => <h1 className="mt-3 mb-1 text-[13px] font-semibold">{children}</h1>,
+        h2: ({ children }) => <h2 className="mt-3 mb-1 text-[13px] font-semibold">{children}</h2>,
+        h3: ({ children }) => <h3 className="mt-2 mb-0.5 text-[13px] font-semibold">{children}</h3>,
+        ul: ({ children }) => <ul className="mb-1.5 list-disc pl-4">{children}</ul>,
+        ol: ({ children }) => <ol className="mb-1.5 list-decimal pl-4">{children}</ol>,
+        li: ({ children }) => <li className="text-[13px] leading-relaxed">{children}</li>,
+        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+        a: ({ href, children }) => (
+          <sup>
+            <a href={href} target="_blank" rel="noopener noreferrer"
+              className="whitespace-nowrap text-[11px] text-[#A8882A] opacity-80 underline underline-offset-2 hover:opacity-100">
+              ↗{String(children).slice(0, 20)}{String(children).length > 20 ? '…' : ''}
+            </a>
+          </sup>
+        ),
+        code: ({ children }) => {
+          const raw = String(children);
+          const match = raw.match(/^%%TS:(\d{1,3}:\d{2})(?:~(\d{1,3}:\d{2}))?%%$/);
+          if (match) {
+            const start = match[1];
+            const end = match[2];
+            const label = end ? `[${start} ~ ${end}]` : `[${start}]`;
+            return onSeekTo ? (
+              <button type="button" onClick={() => onSeekTo(start)}
+                className="mx-0.5 inline-block cursor-pointer rounded-[3px] border border-[rgba(168,136,42,0.22)] bg-[rgba(168,136,42,0.07)] px-[5px] py-[1px] font-mono text-[10.5px] text-[#A8882A]">
+                {label}
+              </button>
+            ) : (
+              <span className="mx-0.5 inline-block rounded-[3px] border border-[rgba(168,136,42,0.22)] bg-[rgba(168,136,42,0.07)] px-[5px] py-[1px] font-mono text-[10.5px] text-[#A8882A]">
+                {label}
+              </span>
+            );
+          }
+          return <code>{children}</code>;
+        },
+      }}
+    >
+      {processed}
+    </ReactMarkdown>
+  );
 }
 
 export function AIChatPanel({
@@ -242,8 +270,8 @@ export function AIChatPanel({
                 style={{ fontFamily: '"DM Sans", sans-serif' }}
               >
                 {msg.role === "assistant" ? (
-                  <div className="whitespace-pre-wrap">
-                    {parseContentWithTimestamps(msg.content, onSeekTo)}
+                  <div>
+                    <MarkdownMessage content={msg.content} onSeekTo={onSeekTo} />
                   </div>
                 ) : (
                   <div className="whitespace-pre-wrap">{msg.content}</div>

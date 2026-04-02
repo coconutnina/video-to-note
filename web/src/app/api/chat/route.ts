@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 const TAVILY_URL = "https://api.tavily.com/search";
 const MAX_HISTORY_ROUNDS = 10;
-const MAX_TRANSCRIPT_CONTEXT = 20000;
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -11,104 +10,13 @@ function formatTime(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-function buildChunks(transcript: { text: string; start: number }[]) {
-  const chunks: {
-    startTime: string;
-    endTime: string;
-    text: string;
-    lines: string;
-  }[] = [];
-  let current: { text: string; start: number }[] = [];
-
-  for (let i = 0; i < transcript.length; i++) {
-    const item = transcript[i];
-    current.push(item);
-    const text = (item.text ?? "").trim();
-
-    const isSentenceEnd = /[.?!]$/.test(text);
-    const isTooLong = current.length >= 15;
-
-    if (isSentenceEnd || isTooLong) {
-      chunks.push({
-        startTime: formatTime(current[0].start),
-        endTime: formatTime(current[current.length - 1].start),
-        text: current.map((s) => s.text).join(" "),
-        lines: current
-          .map((s) => `[${formatTime(s.start)}] ${s.text}`)
-          .join("\n"),
-      });
-      current = [];
-    }
-  }
-
-  if (current.length > 0) {
-    chunks.push({
-      startTime: formatTime(current[0].start),
-      endTime: formatTime(current[current.length - 1].start),
-      text: current.map((s) => s.text).join(" "),
-      lines: current
-        .map((s) => `[${formatTime(s.start)}] ${s.text}`)
-        .join("\n"),
-    });
-  }
-
-  return chunks;
-}
-
-function retrieveRelevantChunks(
-  transcript: { text: string; start: number }[],
-  question: string,
-  maxChars = 8000
+function buildFullTranscriptContext(
+  transcript: { text: string; start: number }[]
 ): string {
   if (!transcript.length) return "";
-
-  const chunks = buildChunks(transcript);
-
-  const questionWords = question
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length > 2);
-
-  const scored = chunks.map((chunk, index) => {
-    const text = chunk.text.toLowerCase();
-    const score = questionWords.reduce(
-      (sum, word) => sum + (text.includes(word) ? 1 : 0),
-      0
-    );
-    return { ...chunk, score, index };
-  });
-
-  const sorted = scored.sort((a, b) => b.score - a.score);
-
-  const topIndices = sorted
-    .filter((c) => c.score > 0)
-    .slice(0, 5)
-    .map((c) => c.index);
-
-  const expandedIndices = new Set<number>();
-  topIndices.forEach((i) => {
-    if (i > 0) expandedIndices.add(i - 1);
-    expandedIndices.add(i);
-    if (i < chunks.length - 1) expandedIndices.add(i + 1);
-  });
-
-  // 如果所有 score 都是 0，退化为首尾各一个 chunk
-  if (expandedIndices.size === 0 && chunks.length > 0) {
-    expandedIndices.add(0);
-    if (chunks.length > 1) expandedIndices.add(chunks.length - 1);
-  }
-
-  const combined = Array.from(expandedIndices)
-    .sort((a, b) => a - b)
-    .map((i) => chunks[i]);
-
-  let result = "";
-  for (const chunk of combined) {
-    if (result.length + chunk.lines.length > maxChars) break;
-    result += chunk.lines + "\n";
-  }
-
-  return result;
+  return transcript
+    .map((item) => `[${formatTime(item.start)}] ${item.text}`)
+    .join("\n");
 }
 
 export async function POST(request: NextRequest) {
@@ -130,11 +38,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "缺少 question" }, { status: 400 });
     }
 
-    const transcriptContext = retrieveRelevantChunks(
-      transcript,
-      question,
-      Math.min(MAX_TRANSCRIPT_CONTEXT, 8000)
-    );
+    const transcriptContext = buildFullTranscriptContext(transcript);
 
     let searchContext = "";
     if (mode === "search") {
@@ -156,7 +60,10 @@ export async function POST(request: NextRequest) {
           };
           searchContext =
             tavilyData.results
-              ?.map((r) => `来源：${r.url ?? ""}\n${r.content ?? ""}`)
+              ?.map(
+                (r) =>
+                  `标题：${r.title ?? ""}\n来源：${r.url ?? ""}\n${r.content ?? ""}`
+              )
               .join("\n\n") ?? "";
         }
       } catch {
@@ -169,12 +76,11 @@ export async function POST(request: NextRequest) {
         ? `你是一个视频学习助手。以下是视频的完整字幕内容和网络搜索结果，请综合回答用户问题。
 
 规则：
-- 优先基于视频字幕内容回答，可以用网络搜索结果补充
-- 回答要具体有价值，不要泛泛而谈
-- 如果用了视频内容，在末尾注明：📍 视频来源：[MM:SS]
-- 如果用了网络内容，在末尾注明：🔗 网络来源：[网站名](URL)
+- 综合视频字幕和网络搜索结果回答，两者都要参考
+- 回答控制在 200 字以内，简洁直接，不要展开所有细节
+- 时间戳必须直接跟在句子末尾，和句子在同一行，中间不加换行，例如：这是一个要点 [00:06]。下一个要点 [00:24]。
+- 引用网络内容时，必须在相关句子末尾用 Markdown 链接标注来源，格式为 [网站标题](URL)
 - 回答语言：中文
-- 禁止使用任何 Markdown 格式（不用 **加粗**、不用 ## 标题、不用 - 列表符号、不用 \`代码块\`），用纯文字和换行组织回答
 
 视频字幕：
 ${transcriptContext}
@@ -186,10 +92,12 @@ ${searchContext}`
 规则：
 - 必须基于字幕内容作答，尽量给出有价值的具体回答
 - 回答要具体，不要泛泛而谈
-- 在回答末尾注明来源：📍 视频来源：[MM:SS]
+- 时间戳必须直接跟在句子末尾，和句子在同一行，中间不加换行，例如：这是一个要点 [00:06]。下一个要点 [00:24]。
+- 不要把时间戳堆在回答末尾
+- 引用网络内容时，使用标准 Markdown 链接格式：[网站标题](URL)
+- 不要单独列出完整 URL
 - 只有字幕中完全没有任何相关内容时，才回复「视频中未提及」
 - 回答语言：中文
-- 禁止使用任何 Markdown 格式（不用 **加粗**、不用 ## 标题、不用 - 列表符号、不用 \`代码块\`），用纯文字和换行组织回答
 
 视频字幕：
 ${transcriptContext}`;
