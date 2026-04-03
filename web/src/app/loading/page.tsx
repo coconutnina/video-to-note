@@ -8,7 +8,8 @@ import { createClient } from "@/lib/supabase/client";
 import { getVideoInfo } from "@/lib/video-info";
 import { getYouTubeVideoId } from "@/lib/youtube";
 import { getCachedMindmap, setCachedMindmap } from "@/lib/workspace-cache";
-import { treeToFlow, type MindMapTreeNode } from "@/lib/mindmap";
+import { treeToFlow } from "@/lib/mindmap";
+import { readGenerateMindmapStream } from "@/lib/read-generate-mindmap-stream";
 
 function LogoMark() {
   return (
@@ -44,7 +45,7 @@ const STEPS = [
   { index: 1, label: "获取视频字幕", status: "done" as const },
   { index: 2, label: "字幕预处理", status: "done" as const },
   { index: 3, label: "AI 生成思维导图骨架", status: "active" as const },
-  { index: 4, label: "进入学习空间，译文及导图细节将持续加载", status: "pending" as const },
+  { index: 4, label: "进入学习空间，译文将持续加载", status: "pending" as const },
 ];
 
 type TranscriptItem = {
@@ -104,6 +105,7 @@ function LoadingClient() {
   const [isTimerRunning, setIsTimerRunning] = React.useState(false);
   const [retryTick, setRetryTick] = React.useState(0);
   const [showAuthModal, setShowAuthModal] = React.useState(false);
+  const [progressMessage, setProgressMessage] = React.useState("");
   const authResolveRef = React.useRef<(() => void) | null>(null);
   const hasNavigatedRef = React.useRef(false);
   const videoTitleRef = React.useRef("");
@@ -159,6 +161,7 @@ function LoadingClient() {
     const run = async () => {
       try {
         setErrorMessage(null);
+        setProgressMessage("");
 
         let isCachedVideo = false;
         let billingSession: Awaited<
@@ -285,6 +288,7 @@ function LoadingClient() {
         setCurrentStep(3);
         const cachedMind = getCachedMindmap(videoId);
         if (!cachedMind) {
+          setProgressMessage("");
           const mindmapRes = await fetch("/api/generate-mindmap", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -297,16 +301,12 @@ function LoadingClient() {
           });
           if (signal.aborted) return;
 
-          const mindmapData = (await mindmapRes.json().catch(() => ({}))) as {
-            mindmap?: { root?: MindMapTreeNode };
-            error?: string;
-          };
-          if (!mindmapRes.ok || mindmapData.error || !mindmapData.mindmap?.root) {
-            throw new Error(mindmapData.error || "思维导图生成失败");
-          }
+          const mindRoot = await readGenerateMindmapStream(mindmapRes, (msg) =>
+            setProgressMessage(msg)
+          );
           if (signal.aborted) return;
 
-          const flow = treeToFlow(mindmapData.mindmap.root);
+          const flow = treeToFlow(mindRoot);
           setCachedMindmap(videoId, flow);
         }
         setProgress(90);
@@ -376,6 +376,7 @@ function LoadingClient() {
     setProgress(0);
     setElapsedSeconds(0);
     setErrorMessage(null);
+    setProgressMessage("");
     setRetryTick((n) => n + 1);
   }
 
@@ -459,11 +460,17 @@ function LoadingClient() {
                         完成
                       </span>
                     ) : isActive ? (
-                      <span className="flex shrink-0 items-center gap-[3px]">
-                        <span className="lp-dot" />
-                        <span className="lp-dot [animation-delay:0.2s]" />
-                        <span className="lp-dot [animation-delay:0.4s]" />
-                      </span>
+                      step.index === 3 ? (
+                        <span className="shrink-0 font-mono text-[10px] text-[var(--gold)]">
+                          {progressMessage}
+                        </span>
+                      ) : (
+                        <span className="flex shrink-0 items-center gap-[3px]">
+                          <span className="lp-dot" />
+                          <span className="lp-dot [animation-delay:0.2s]" />
+                          <span className="lp-dot [animation-delay:0.4s]" />
+                        </span>
+                      )
                     ) : null}
                   </div>
                 );

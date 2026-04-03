@@ -1,9 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { deepseekStreamCompletion } from "@/lib/deepseek-stream";
 import { treeToFlow, type EdgeType, type FlowEdge, type FlowNode, type MindMapTreeNode } from "@/lib/mindmap";
 import { getMindmapCache, setMindmapCache } from "@/lib/supabase-cache";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
+
+const textEncoder = new TextEncoder();
+
+function ndjsonResponse(status: number, payload: Record<string, unknown>) {
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(
+        textEncoder.encode(`${JSON.stringify(payload)}\n`)
+      );
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+  });
+}
 
 interface TranscriptItem {
   text: string;
@@ -561,94 +580,125 @@ ${JSON.stringify(targetPayload)}
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const apiKey = process.env.DEEPSEEK_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "缺少 DeepSeek API Key" },
-        { status: 500 }
-      );
-    }
-
-    const body = (await request.json().catch(() => null)) as {
-      transcript?: TranscriptItem[];
-      videoTitle?: string;
-      channelTitle?: string;
-      videoId?: string;
-    } | null;
-    const transcript = body?.transcript ?? [];
-    const videoId = typeof body?.videoId === "string" ? body.videoId.trim() : "";
-    const rawTitle =
-      typeof body?.videoTitle === "string" ? body.videoTitle.trim() : "";
-    const channelTitle =
-      typeof body?.channelTitle === "string" ? body.channelTitle.trim() : "";
-    if (!Array.isArray(transcript) || transcript.length === 0) {
-      return NextResponse.json(
-        { error: "transcript 为空或格式错误" },
-        { status: 400 }
-      );
-    }
-
-    if (videoId) {
-      const cachedMindmap = await getMindmapCache(videoId);
-      if (cachedMindmap) {
-        const root = flowToTreeRoot(cachedMindmap.nodes, cachedMindmap.edges);
-        if (root) {
-          return NextResponse.json({ mindmap: { root } });
-        }
-      }
-    }
-
-    const windows = buildTimedWindows(transcript, 30);
-    const timedText = windows
-      .map((w) => `[${w.timestamp}] ${w.text}`)
-      .join("\n");
-
-    let content: string;
-    try {
-      content = await deepseekStreamCompletion(apiKey, {
-        model: "deepseek-chat",
-        messages: [
-          { role: "system", content: MINDMAP_SKELETON_PROMPT },
-          {
-            role: "user",
-            content: timedText,
-          },
-        ],
-        max_tokens: 4000,
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new Error(`DeepSeek 脑图请求失败: ${msg}`);
-    }
-    console.log("DeepSeek response length:", content.length);
-    console.log("DeepSeek response tail:", content.substring(content.length - 200));
-    const skeletonRoot = parseSkeletonText(content);
-    // 用真实视频标题覆盖根节点 label
-    const invalidTitles = ["加载中...", "loading", "undefined", ""];
-    if (rawTitle && !invalidTitles.includes(rawTitle.toLowerCase())) {
-      skeletonRoot.label = rawTitle;
-    }
-    const mindmap = { root: skeletonRoot };
-
-    if (!mindmap?.root) {
-      throw new Error("DeepSeek 返回的脑图格式无效");
-    }
-
-    fixNodeTimestamps(mindmap.root);
-    await enrichDetails(apiKey, timedText, mindmap.root, channelTitle);
-    const rootTree = normalizeToTreeNode(mindmap.root);
-    if (videoId) {
-      const flow = treeToFlow(rootTree);
-      await setMindmapCache(videoId, { nodes: flow.nodes, edges: flow.edges });
-    }
-
-    return NextResponse.json({ mindmap: { root: rootTree } });
-  } catch (error) {
-    console.error("generate-mindmap 失败:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "生成失败" },
-      { status: 500 }
-    );
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    return ndjsonResponse(500, {
+      type: "error",
+      error: "缺少 DeepSeek API Key",
+    });
   }
+
+  const body = (await request.json().catch(() => null)) as {
+    transcript?: TranscriptItem[];
+    videoTitle?: string;
+    channelTitle?: string;
+    videoId?: string;
+  } | null;
+  const transcript = body?.transcript ?? [];
+  const videoId = typeof body?.videoId === "string" ? body.videoId.trim() : "";
+  const rawTitle =
+    typeof body?.videoTitle === "string" ? body.videoTitle.trim() : "";
+  const channelTitle =
+    typeof body?.channelTitle === "string" ? body.channelTitle.trim() : "";
+  if (!Array.isArray(transcript) || transcript.length === 0) {
+    return ndjsonResponse(400, {
+      type: "error",
+      error: "transcript 为空或格式错误",
+    });
+  }
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const write = (obj: Record<string, unknown>) => {
+        controller.enqueue(
+          textEncoder.encode(`${JSON.stringify(obj)}\n`)
+        );
+      };
+
+      try {
+        if (videoId) {
+          const cachedMindmap = await getMindmapCache(videoId);
+          if (cachedMindmap) {
+            const root = flowToTreeRoot(cachedMindmap.nodes, cachedMindmap.edges);
+            if (root) {
+              write({ type: "done", mindmap: { root } });
+              controller.close();
+              return;
+            }
+          }
+        }
+
+        const windows = buildTimedWindows(transcript, 30);
+        const timedText = windows
+          .map((w) => `[${w.timestamp}] ${w.text}`)
+          .join("\n");
+
+        write({ type: "progress", message: "字幕预处理完成" });
+
+        let content: string;
+        try {
+          content = await deepseekStreamCompletion(apiKey, {
+            model: "deepseek-chat",
+            messages: [
+              { role: "system", content: MINDMAP_SKELETON_PROMPT },
+              {
+                role: "user",
+                content: timedText,
+              },
+            ],
+            max_tokens: 4000,
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          throw new Error(`DeepSeek 脑图请求失败: ${msg}`);
+        }
+        console.log("DeepSeek response length:", content.length);
+        console.log("DeepSeek response tail:", content.substring(content.length - 200));
+
+        write({
+          type: "progress",
+          message: "脑图骨架生成完成，正在补充节点详情...",
+        });
+
+        const skeletonRoot = parseSkeletonText(content);
+        // 用真实视频标题覆盖根节点 label
+        const invalidTitles = ["加载中...", "loading", "undefined", ""];
+        if (rawTitle && !invalidTitles.includes(rawTitle.toLowerCase())) {
+          skeletonRoot.label = rawTitle;
+        }
+        const mindmap = { root: skeletonRoot };
+
+        if (!mindmap?.root) {
+          throw new Error("DeepSeek 返回的脑图格式无效");
+        }
+
+        fixNodeTimestamps(mindmap.root);
+        await enrichDetails(apiKey, timedText, mindmap.root, channelTitle);
+
+        write({ type: "progress", message: "节点详情补充完成" });
+
+        const rootTree = normalizeToTreeNode(mindmap.root);
+        if (videoId) {
+          const flow = treeToFlow(rootTree);
+          await setMindmapCache(videoId, { nodes: flow.nodes, edges: flow.edges });
+        }
+
+        write({ type: "done", mindmap: { root: rootTree } });
+        controller.close();
+      } catch (error) {
+        console.error("generate-mindmap 失败:", error);
+        write({
+          type: "error",
+          error: error instanceof Error ? error.message : "生成失败",
+        });
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+  });
 }

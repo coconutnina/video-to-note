@@ -25,6 +25,7 @@ import {
 } from "@/components/workspace/VideoPlayer";
 import type { FlowEdge, FlowNode } from "@/lib/mindmap";
 import { treeToFlow } from "@/lib/mindmap";
+import { readGenerateMindmapStream } from "@/lib/read-generate-mindmap-stream";
 import { fetchTranscript, formatTimestamp } from "@/lib/transcript";
 import {
   clearAllCachedMindmaps,
@@ -291,14 +292,12 @@ function WorkspaceClient() {
             channelTitle: channelTitleRef.current ?? "",
           }),
         })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data?.mindmap?.root) {
-              const { nodes, edges } = treeToFlow(data.mindmap.root);
-              setMindmapNodes(nodes);
-              setMindmapEdges(edges);
-              setCachedMindmap(videoId, { nodes, edges });
-            }
+          .then(async (res) => {
+            const root = await readGenerateMindmapStream(res);
+            const { nodes, edges } = treeToFlow(root);
+            setMindmapNodes(nodes);
+            setMindmapEdges(edges);
+            setCachedMindmap(videoId, { nodes, edges });
           })
           .catch((err) => console.error("脑图生成失败:", err))
           .finally(() => setMindmapLoading(false));
