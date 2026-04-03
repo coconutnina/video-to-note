@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AIChatPanel } from "@/components/workspace/AIChatPanel";
+import { AIChatPanel, parseTimestampToSeconds } from "@/components/workspace/AIChatPanel";
 import { MindMap } from "@/components/workspace/MindMap";
 import { SubtitlePanel } from "@/components/workspace/SubtitlePanel";
 import type { SubtitleMode } from "@/components/workspace/SubtitlePanel";
@@ -71,14 +71,6 @@ function mergeSegments(segments: TranscriptSegment[]) {
 
 type WorkspaceMode = "nav" | "focus";
 type TranscriptStatus = "loading" | "success" | "no_subtitle" | "error";
-
-function parseTimestampToSeconds(time: string): number {
-  const parts = time.split(":").map((p) => Number(p));
-  if (parts.some((n) => Number.isNaN(n))) return 0;
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  return 0;
-}
 
 function WorkspaceClient() {
   const searchParams = useSearchParams();

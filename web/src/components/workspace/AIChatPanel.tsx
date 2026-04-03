@@ -33,6 +33,15 @@ export interface AIChatPanelProps {
   className?: string;
 }
 
+/** 与聊天时间戳解析一致：MM:SS（分钟 1–3 位）或 HH:MM:SS → 秒 */
+export function parseTimestampToSeconds(time: string): number {
+  const parts = time.split(":").map((p) => Number(p.trim()));
+  if (parts.some((n) => Number.isNaN(n))) return 0;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return 0;
+}
+
 const WELCOME_MESSAGE: ChatMessage = {
   id: "welcome",
   role: "assistant",
@@ -40,31 +49,48 @@ const WELCOME_MESSAGE: ChatMessage = {
 };
 
 function MarkdownMessage({ content, onSeekTo }: { content: string; onSeekTo?: (time: string) => void }) {
-  // 第一步：把孤立的时间戳行合并到上一行
-  const cleaned = content
-    .replace(/\n(\[\d{1,3}:\d{2}(?:[,~]\s*\d{1,3}:\d{2})*\])\n\s*([。，、.,])/g, '$2 $1')
-    .replace(/\n(\[\d{1,3}:\d{2}(?:[,~]\s*\d{1,3}:\d{2})*\])/g, ' $1');
-
-  const merged = cleaned.replace(
-    /\[(\d{1,3}:\d{2})\]((?:\s*\[(\d{1,3}:\d{2})\])+)/g,
-    (_full, first, rest) => {
-      const times = [first, ...Array.from(rest.matchAll(/\[(\d{1,3}:\d{2})\]/g), (m: RegExpMatchArray) => m[1])];
-      return `[${times[0]} ~ ${times[times.length - 1]}]`;
-    }
+  const ts = "(?:\\d{1,2}:\\d{2}:\\d{2}|\\d{1,3}:\\d{2})";
+  const tsCap = "(\\d{1,2}:\\d{2}:\\d{2}|\\d{1,3}:\\d{2})";
+  const bracketGroup = `\\[${ts}(?:[,~]\\s*${ts})*\\]`;
+  const reOrphanBeforePunct = new RegExp(
+    `\n(${bracketGroup})\n\\s*([。，、.,])`,
+    "g"
+  );
+  const reOrphanLine = new RegExp(`\n(${bracketGroup})`, "g");
+  const reAdjacentTs = new RegExp(
+    `\\[${tsCap}\\]((?:\\s*\\[${tsCap}\\])+)`,
+    "g"
+  );
+  const reOneBracketedTs = new RegExp(`\\[${tsCap}\\]`, "g");
+  const reCommaList = new RegExp(
+    `\\[(${ts}(?:\\s*,\\s*${ts})*)\\]`,
+    "g"
+  );
+  const reRange = new RegExp(
+    `\\[(${ts})\\s*~\\s*(${ts})\\]`,
+    "g"
   );
 
-  // 第二步：把所有时间戳格式转换为 Markdown 行内代码 `%%TS:MM:SS%%`
+  // 第一步：把孤立的时间戳行合并到上一行
+  const cleaned = content
+    .replace(reOrphanBeforePunct, "$2 $1")
+    .replace(reOrphanLine, " $1");
+
+  const merged = cleaned.replace(reAdjacentTs, (_full, first, rest) => {
+    const times = [
+      first,
+      ...Array.from(rest.matchAll(reOneBracketedTs), (m: RegExpMatchArray) => m[1]),
+    ];
+    return `[${times[0]} ~ ${times[times.length - 1]}]`;
+  });
+
+  // 第二步：把所有时间戳格式转换为 Markdown 行内代码 `%%TS:…%%`
   // 这样 ReactMarkdown 会把它保持在行内，不会另起段落
   const processed = merged
-    .replace(
-      /\[((\d{1,3}:\d{2})(?:\s*,\s*\d{1,3}:\d{2})*)\]/g,
-      (_full, list: string) =>
-        list.split(/\s*,\s*/).map(t => `\`%%TS:${t.trim()}%%\``).join(' ')
+    .replace(reCommaList, (_full, list: string) =>
+      list.split(/\s*,\s*/).map((t) => `\`%%TS:${t.trim()}%%\``).join(" ")
     )
-    .replace(
-      /\[(\d{1,3}:\d{2})\s*~\s*(\d{1,3}:\d{2})\]/g,
-      (_full, s: string, e: string) => `\`%%TS:${s}~${e}%%\``
-    );
+    .replace(reRange, (_full, s: string, e: string) => `\`%%TS:${s}~${e}%%\``);
 
   return (
     <ReactMarkdown
@@ -88,7 +114,9 @@ function MarkdownMessage({ content, onSeekTo }: { content: string; onSeekTo?: (t
         ),
         code: ({ children }) => {
           const raw = String(children);
-          const match = raw.match(/^%%TS:(\d{1,3}:\d{2})(?:~(\d{1,3}:\d{2}))?%%$/);
+          const match = raw.match(
+            /^%%TS:(\d{1,2}:\d{2}:\d{2}|\d{1,3}:\d{2})(?:~(\d{1,2}:\d{2}:\d{2}|\d{1,3}:\d{2}))?%%$/
+          );
           if (match) {
             const start = match[1];
             const end = match[2];
