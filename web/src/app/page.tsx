@@ -22,6 +22,9 @@ function isValidYouTubeUrl(raw: string): boolean {
   }
 }
 
+/** 首页顶栏「功能介绍」「建议反馈」；具体功能就绪后改为 true */
+const SHOW_HOME_NAV_EXTRAS = false;
+
 function LogoMark() {
   return (
     <svg
@@ -238,13 +241,17 @@ export default function HomePage() {
         </div>
 
         <div className="flex items-center gap-9">
-          <span className="cursor-default text-[13px] font-normal text-[#555555] transition-colors">
-            功能介绍
-          </span>
-          <span className="cursor-default text-[13px] font-normal text-[#555555] transition-colors">
-            建议反馈
-          </span>
-          <div className="h-4 w-px bg-[#E8E8E8]" />
+          {SHOW_HOME_NAV_EXTRAS ? (
+            <>
+              <span className="cursor-default text-[13px] font-normal text-[#555555] transition-colors">
+                功能介绍
+              </span>
+              <span className="cursor-default text-[13px] font-normal text-[#555555] transition-colors">
+                建议反馈
+              </span>
+              <div className="h-4 w-px bg-[#E8E8E8]" />
+            </>
+          ) : null}
           {user ? (
             <div className="relative" ref={menuRef}>
               <button

@@ -699,6 +699,9 @@ function WorkspaceClient() {
                 <path d="M10.5 2.5V5.5H7.5" />
               </svg>
               重新生成
+              <span className="ml-0.5 text-[10px] font-normal normal-case tracking-wide text-[#888888]">
+                开发中
+              </span>
             </button>
             <div ref={downloadRef} className="relative">
               <button
