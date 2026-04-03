@@ -83,6 +83,29 @@ function buildTimedWindows(
   return out;
 }
 
+function mapTranscriptFetchError(raw: string): {
+  message: string;
+  hideRetry: boolean;
+} {
+  const lower = raw.toLowerCase();
+  if (raw.includes("404")) {
+    return {
+      message: "该视频未开启字幕功能，暂时无法处理。建议尝试其他视频～",
+      hideRetry: true,
+    };
+  }
+  if (raw.includes("408") || lower.includes("timeout")) {
+    return {
+      message: "字幕服务响应超时，请稍后重试",
+      hideRetry: false,
+    };
+  }
+  return {
+    message: raw || "字幕获取失败",
+    hideRetry: false,
+  };
+}
+
 const GUEST_VIDEO_KEY = "vtn:guest_video_id";
 
 function LoadingClient() {
@@ -102,6 +125,8 @@ function LoadingClient() {
   const [progress, setProgress] = React.useState(0);
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [hideRetryButton, setHideRetryButton] = React.useState(false);
+  const transcriptErrorHideRetryRef = React.useRef(false);
   const [isTimerRunning, setIsTimerRunning] = React.useState(false);
   const [retryTick, setRetryTick] = React.useState(0);
   const [showAuthModal, setShowAuthModal] = React.useState(false);
@@ -161,6 +186,8 @@ function LoadingClient() {
     const run = async () => {
       try {
         setErrorMessage(null);
+        setHideRetryButton(false);
+        transcriptErrorHideRetryRef.current = false;
         setProgressMessage("");
 
         let isCachedVideo = false;
@@ -271,7 +298,14 @@ function LoadingClient() {
           !Array.isArray(transcriptData.transcript) ||
           transcriptData.transcript.length === 0
         ) {
-          throw new Error(lastError || "字幕获取失败");
+          const combined =
+            `${transcriptData.error ?? ""} ${lastError}`.trim() ||
+            lastError ||
+            transcriptData.error ||
+            "";
+          const mapped = mapTranscriptFetchError(combined);
+          transcriptErrorHideRetryRef.current = mapped.hideRetry;
+          throw new Error(mapped.message);
         }
         const transcript = transcriptData.transcript;
         if (signal.aborted) return;
@@ -360,6 +394,8 @@ function LoadingClient() {
       } catch (err) {
         if (signal.aborted) return;
         setIsTimerRunning(false);
+        setHideRetryButton(transcriptErrorHideRetryRef.current);
+        transcriptErrorHideRetryRef.current = false;
         setErrorMessage(err instanceof Error ? err.message : "处理失败，请重试");
       }
     };
@@ -376,6 +412,7 @@ function LoadingClient() {
     setProgress(0);
     setElapsedSeconds(0);
     setErrorMessage(null);
+    setHideRetryButton(false);
     setProgressMessage("");
     setRetryTick((n) => n + 1);
   }
@@ -412,13 +449,15 @@ function LoadingClient() {
             {errorMessage ? (
               <div className="lp-anim-3 mb-14">
                 <p className="text-[15px] font-normal text-[#cc0000]">{errorMessage}</p>
-                <button
-                  type="button"
-                  onClick={handleRetry}
-                  className="mt-2 text-[13px] font-normal text-[#A8882A] underline underline-offset-4"
-                >
-                  重试
-                </button>
+                {!hideRetryButton ? (
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    className="mt-2 text-[13px] font-normal text-[#A8882A] underline underline-offset-4"
+                  >
+                    重试
+                  </button>
+                ) : null}
               </div>
             ) : (
               <p className="lp-anim-3 mb-14 text-[15px] font-normal text-[#444444]">
